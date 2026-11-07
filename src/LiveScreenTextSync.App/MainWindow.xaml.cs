@@ -12,7 +12,6 @@ namespace LiveScreenTextSync.App;
 
 public partial class MainWindow : Window
 {
-    private sealed record LanguageOption(string Tag, string Display);
     private sealed class LocalWriter(Action<string> display) : ITextWriter
     {
         public Task WriteAsync(string text, CancellationToken token)
@@ -24,6 +23,9 @@ public partial class MainWindow : Window
     }
 
     private readonly DispatcherTimer metrics = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly IClipboardWriter clipboard;
+    private readonly AutoCopyController autoCopy;
+    internal RecordingClipboardWriter? TestClipboard => clipboard as RecordingClipboardWriter;
     private ScreenRegion? region;
     private SourceOutline? outline;
     private string? sourceTopology;
@@ -32,29 +34,33 @@ public partial class MainWindow : Window
     private Task? running;
     private TextConfirmation? confirmation;
     private string state = "Idle";
-    private bool closing, busy;
+    private bool closing, busy, settingsReady;
     private int frameCount, updateCount;
 
     public MainWindow()
     {
         InitializeComponent();
+        clipboard = Program.IsDiagnostic ? new RecordingClipboardWriter() : new ClipboardWriter();
+        autoCopy = new(clipboard);
         Title = $"Live Screen Text Sync · v{typeof(App).Assembly.GetName().Version?.ToString(3)}";
         var loaded = SettingsStore.Load();
         IntervalInput.Text = loaded.IntervalMs.ToString();
         PreprocessInput.IsChecked = loaded.Preprocess;
+        AutoCopyInput.IsChecked = loaded.AutoCopy;
+        autoCopy.SetEnabled(loaded.AutoCopy);
+        ClipboardStatusLabel.Text = loaded.AutoCopy ? "On · each text change" : "Off";
         try
         {
-            var languages = WindowsOcr.Languages.Select(l => new LanguageOption(l.LanguageTag,
-                $"{System.Globalization.CultureInfo.GetCultureInfo(l.LanguageTag).EnglishName} ({l.LanguageTag})")).ToArray();
+            var languages = OcrLanguages.GetAvailable().ToArray();
             LanguageInput.ItemsSource = languages;
-            LanguageInput.SelectedItem = languages.FirstOrDefault(l => l.Tag == loaded.Language) ??
-                languages.FirstOrDefault(l => l.Tag.StartsWith("en", StringComparison.OrdinalIgnoreCase)) ?? languages.FirstOrDefault();
-            if (languages.Length == 0) StatusLabel.Text = "Install a Windows OCR language in Settings > Time & language > Language & region.";
+            LanguageInput.SelectedItem = languages.FirstOrDefault(l => loaded.Language is not null && (l.Id == loaded.Language || l.WindowsTag == loaded.Language)) ??
+                languages.FirstOrDefault(l => l.Id == "en-US") ?? languages.FirstOrDefault();
+            if (languages.Length == 0) StatusLabel.Text = "No OCR languages are available. Extract the full portable package including tessdata.";
         }
         catch (Exception ex)
         {
             Log.Warning("OCR language discovery failed: {ErrorType}", ex.GetType().Name);
-            StatusLabel.Text = "Windows OCR is unavailable. Check installed OCR language features.";
+            StatusLabel.Text = "OCR languages are unavailable. Extract the complete portable package.";
         }
         if (Program.RenderPath is null && loaded.Source is { } saved && loaded.DisplayTopology == Monitors.Fingerprint() && Monitors.IsValid(saved))
             SetSource(saved);
@@ -65,9 +71,10 @@ public partial class MainWindow : Window
             if (!hotkeys.StopRegistered)
                 HotkeyLabel.Text = "Global shortcut unavailable (another copy may be running). Use Stop in this window. Keep the source visible.";
         };
-        metrics.Tick += (_, _) => FramesLabel.Text = $"{Volatile.Read(ref frameCount):N0} frames";
+        metrics.Tick += (_, _) => { FramesLabel.Text = $"{Volatile.Read(ref frameCount):N0} frames"; TryAutoCopy(); };
         metrics.Start();
         Closing += OnClosing;
+        settingsReady = true;
         UpdateControls();
     }
 
@@ -108,27 +115,32 @@ public partial class MainWindow : Window
 
     private async void Start_Click(object sender, RoutedEventArgs e) => await StartRunAsync();
 
-    private Task StartRunAsync()
+    private async Task StartRunAsync()
     {
-        if (busy || running is { IsCompleted: false }) return Task.CompletedTask;
+        if (busy || running is { IsCompleted: false }) return;
         if (region is null || !Monitors.IsValid(region) || sourceTopology != Monitors.Fingerprint())
-        { SetStatus("Error", "The source or display layout changed. Select the source again."); return Task.CompletedTask; }
+        { SetStatus("Error", "The source or display layout changed. Select the source again."); return; }
         if (!int.TryParse(IntervalInput.Text, out var interval) || interval is < 100 or > 5000)
-        { SetStatus("Error", "Capture interval must be a whole number from 100 to 5000 ms."); return Task.CompletedTask; }
-        if (LanguageInput.SelectedItem is not LanguageOption language)
-        { SetStatus("Error", "Install and select a Windows OCR language first."); return Task.CompletedTask; }
+        { SetStatus("Error", "Capture interval must be a whole number from 100 to 5000 ms."); return; }
+        if (LanguageInput.SelectedItem is not OcrLanguage language)
+        { SetStatus("Error", "Select an OCR language first."); return; }
         if (Math.Max(region.Width, region.Height) > Windows.Media.Ocr.OcrEngine.MaxImageDimension)
-        { SetStatus("Error", $"Select a smaller source. OCR supports dimensions up to {Windows.Media.Ocr.OcrEngine.MaxImageDimension} pixels."); return Task.CompletedTask; }
+        { SetStatus("Error", $"Select a smaller source. OCR supports dimensions up to {Windows.Media.Ocr.OcrEngine.MaxImageDimension} pixels."); return; }
+        var resuming = state == "Paused";
+        var enhance = PreprocessInput.IsChecked == true;
+        busy = true;
+        runCancellation?.Dispose();
+        runCancellation = new();
+        var token = runCancellation.Token;
+        DesktopCapture? capture = null;
+        ITextRecognizer? ocr = null;
+        SetStatus("Preparing", $"Loading {language.Display} OCR…");
         try
         {
-            var capture = new DesktopCapture(region);
-            WindowsOcr ocr;
-            try { ocr = new(language.Tag, PreprocessInput.IsChecked == true); }
-            catch { capture.Dispose(); throw; }
-            if (state != "Paused") confirmation = new(false);
-            runCancellation?.Dispose();
-            runCancellation = new();
-            var token = runCancellation.Token;
+            capture = new DesktopCapture(region);
+            ocr = await Task.Run(() => OcrLanguages.Create(language, enhance), CancellationToken.None);
+            token.ThrowIfCancellationRequested();
+            if (!resuming) confirmation = new(false);
             var writer = new LocalWriter(text => _ = Dispatcher.BeginInvoke(() => DisplayText(text, token)));
             var engine = new SyncEngine(capture, ocr, writer, new(interval, false), confirmation);
             engine.Updated += update =>
@@ -143,12 +155,17 @@ public partial class MainWindow : Window
             SetStatus("Capturing", "Reading the source into this window. Use Copy Text whenever you need it.");
             Log.Information("Local capture started. Interval {IntervalMs}", interval);
             SaveSettings();
-            running = Task.Run(async () => { using (capture) await engine.RunAsync(token); }, CancellationToken.None);
+            var sessionCapture = capture;
+            var sessionOcr = ocr;
+            running = Task.Run(async () => { using (sessionCapture) using (sessionOcr as IDisposable) await engine.RunAsync(token); }, CancellationToken.None);
+            capture = null;
+            ocr = null;
             _ = ObserveRunAsync(running, token);
             UpdateControls();
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { ReportError(ex); }
-        return Task.CompletedTask;
+        finally { capture?.Dispose(); (ocr as IDisposable)?.Dispose(); busy = false; UpdateControls(); }
     }
 
     private async Task ObserveRunAsync(Task task, CancellationToken token)
@@ -167,15 +184,49 @@ public partial class MainWindow : Window
         UpdatesLabel.Text = $"{++updateCount:N0} text changes";
         LastReadLabel.Text = $"Read {DateTime.Now:HH:mm:ss}";
         StatusLabel.Text = "Text captured. Select it here or click Copy Text.";
+        autoCopy.Queue(text);
+        TryAutoCopy();
         UpdateControls();
     }
 
     private void Copy_Click(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(PreviewText.Text)) return;
-        try { Clipboard.SetText(PreviewText.Text); StatusLabel.Text = "Text copied to the clipboard."; }
-        catch (System.Runtime.InteropServices.ExternalException)
-        { StatusLabel.Text = "The clipboard is busy. Try Copy Text again."; }
+        if (clipboard.TryWrite(PreviewText.Text))
+        {
+            autoCopy.CancelPending();
+            ClipboardStatusLabel.Text = autoCopy.Enabled ? $"Copied {DateTime.Now:HH:mm:ss}" : "Off";
+            StatusLabel.Text = "Text copied to the clipboard.";
+        }
+        else StatusLabel.Text = "The clipboard is busy. Try Copy Text again.";
+    }
+
+    private void AutoCopy_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!settingsReady) return;
+        autoCopy.SetEnabled(AutoCopyInput.IsChecked == true);
+        ClipboardStatusLabel.Text = autoCopy.Enabled ? "On · each text change" : "Off";
+        if (autoCopy.Enabled) { autoCopy.Queue(PreviewText.Text); TryAutoCopy(); }
+        SaveSettings();
+    }
+
+    private void TryAutoCopy()
+    {
+        if (closing) return;
+        var result = autoCopy.TryCopyPending();
+        if (result == ClipboardCopyResult.Copied)
+        {
+            ClipboardStatusLabel.Text = $"Copied {DateTime.Now:HH:mm:ss}";
+            StatusLabel.Text = "Text captured and copied to the clipboard.";
+        }
+        else if (result == ClipboardCopyResult.Busy) ClipboardStatusLabel.Text = "Clipboard busy · retrying latest text";
+    }
+
+    private void Language_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!settingsReady) return;
+        UpdateControls();
+        SaveSettings();
     }
 
     private async void Pause_Click(object sender, RoutedEventArgs e)
@@ -187,6 +238,7 @@ public partial class MainWindow : Window
 
     private async Task StopRunAsync(string? message = null, string? nextState = null)
     {
+        autoCopy.CancelPending();
         if (runCancellation is not null) await runCancellation.CancelAsync();
         if (running is { } task)
         {
@@ -210,11 +262,11 @@ public partial class MainWindow : Window
     }
     private void UpdateControls()
     {
-        var active = state == "Capturing" || running is { IsCompleted: false };
+        var active = state is "Capturing" or "Preparing" || running is { IsCompleted: false };
         SourceButton.IsEnabled = !busy && !active;
         SettingsPanel.IsEnabled = !busy && !active;
         StartButton.IsEnabled = !busy && !active && region is not null && LanguageInput.SelectedItem is not null;
-        PauseButton.IsEnabled = !busy && (active || state == "Paused");
+        PauseButton.IsEnabled = !busy && (state == "Capturing" || state == "Paused");
         PauseButton.Content = state == "Paused" ? "Resume" : "Pause";
         StopButton.IsEnabled = active || state == "Paused";
         CopyButton.IsEnabled = !string.IsNullOrWhiteSpace(PreviewText.Text);
@@ -238,7 +290,7 @@ public partial class MainWindow : Window
             SettingsStore.Save(new()
             {
                 IntervalMs = interval, Preprocess = PreprocessInput.IsChecked == true,
-                Language = (LanguageInput.SelectedItem as LanguageOption)?.Tag, Source = region, DisplayTopology = sourceTopology
+                AutoCopy = autoCopy.Enabled, Language = (LanguageInput.SelectedItem as OcrLanguage)?.Id, Source = region, DisplayTopology = sourceTopology
             });
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)

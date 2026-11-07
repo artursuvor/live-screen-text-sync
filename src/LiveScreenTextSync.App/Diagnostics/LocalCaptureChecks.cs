@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using LiveScreenTextSync.App.Capture;
 using LiveScreenTextSync.App.Views;
 
 namespace LiveScreenTextSync.App.Diagnostics;
@@ -19,8 +20,10 @@ public static class LocalCaptureChecks
         Process? tinySample = null;
         try
         {
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var token = deadline.Token;
+            var autoCopy = (CheckBox)window.FindName("AutoCopyInput");
+            autoCopy.IsChecked = false;
             Require(window.FindName("TargetButton") is null && window.FindName("PreviewButton") is null, "The main workflow must not require an external target or preview mode.");
             results.Add(new { Check = "Main window has a single local capture workflow", Passed = true });
             sample = Program.StartChild("--sample-source", "--fixture-info", infoPath);
@@ -60,6 +63,58 @@ public static class LocalCaptureChecks
             File.WriteAllText(tinyPath + ".command", "dark");
             await WaitUntilAsync(() => preview.Text.Contains("SMALL DARK TEXT", StringComparison.OrdinalIgnoreCase), token);
             results.Add(new { Check = "Small light text on a dark background is recognized", Passed = true });
+            await window.StopLocalCheckAsync();
+            tinySample.Kill(entireProcessTree: true);
+            await tinySample.WaitForExitAsync(token);
+
+            var languages = OcrLanguages.GetAvailable();
+            Require(languages.Any(l => l.Id == "uk-UA") && languages.Any(l => l.Id == "ru+en"), "Additional and mixed OCR languages are missing.");
+            var models = languages.Where(l => !string.IsNullOrWhiteSpace(l.Models) && !l.Models.Contains('+')).Select(l => l.Models).Distinct().ToArray();
+            Require(models.Length >= 12, "Twelve bundled language models must be present.");
+            foreach (var model in models) { using var recognizer = new BundledOcr(model, false); }
+            results.Add(new { Check = "All twelve bundled OCR models load; mixed-language choices are available", Passed = true });
+
+            var languageInput = (ComboBox)window.FindName("LanguageInput");
+            languageInput.SelectedItem = languages.Single(l => l.Id == "uk-UA");
+            File.WriteAllText(infoPath + ".command", "ukrainian");
+            await WaitUntilAsync(() => !File.Exists(infoPath + ".command"), token);
+            await Task.Delay(150, token);
+            await window.StartLocalCheckAsync(info.Region);
+            await WaitUntilAsync(() => preview.Text.Contains("ПРИВІТ СВІТ", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "Bundled Ukrainian OCR reads Cyrillic text into the app", Passed = true });
+            await window.StopLocalCheckAsync();
+            languageInput.SelectedItem = languages.Single(l => l.Id == "de-DE");
+            File.WriteAllText(infoPath + ".command", "german");
+            await WaitUntilAsync(() => !File.Exists(infoPath + ".command"), token);
+            await Task.Delay(150, token);
+            await window.StartLocalCheckAsync(info.Region);
+            await WaitUntilAsync(() => preview.Text.Contains("München", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "Bundled German OCR preserves accented text", Passed = true });
+
+            var clipboard = window.TestClipboard ?? throw new InvalidOperationException("Diagnostics must isolate the user's real clipboard.");
+            Require(clipboard.Writes.Count == 0, "Auto-copy off must leave the clipboard untouched.");
+            autoCopy.IsChecked = true;
+            Require(clipboard.Writes.LastOrDefault() == preview.Text, "Enabling auto-copy must copy the current result.");
+            results.Add(new { Check = "Auto-copy can be enabled while capturing and copies the current text", Passed = true });
+            var copies = clipboard.Writes.Count;
+            File.WriteAllText(infoPath + ".command", "german2");
+            await WaitUntilAsync(() => clipboard.Writes.Count > copies && clipboard.Writes.Last().Contains("Wörter", StringComparison.OrdinalIgnoreCase), token);
+            Require(clipboard.Writes.Last() == preview.Text, "Auto-copy must match the latest result.");
+            results.Add(new { Check = "Updated recognition is automatically copied", Passed = true });
+            autoCopy.IsChecked = false;
+            copies = clipboard.Writes.Count;
+            File.WriteAllText(infoPath + ".command", "german");
+            await WaitUntilAsync(() => preview.Text.Contains("München", StringComparison.OrdinalIgnoreCase), token);
+            Require(clipboard.Writes.Count == copies, "Disabling auto-copy must stop clipboard updates immediately.");
+            results.Add(new { Check = "Disabling auto-copy stops further writes while capture continues", Passed = true });
+            await window.StopLocalCheckAsync();
+            languageInput.SelectedItem = languages.Single(l => l.Id == "ru+en");
+            File.WriteAllText(infoPath + ".command", "mixed");
+            await WaitUntilAsync(() => !File.Exists(infoPath + ".command"), token);
+            await Task.Delay(150, token);
+            await window.StartLocalCheckAsync(info.Region);
+            await WaitUntilAsync(() => preview.Text.Contains("Hello", StringComparison.OrdinalIgnoreCase) && preview.Text.Contains("Привет", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "Russian + English mode recognizes both scripts in one line", Passed = true });
             File.WriteAllText(reportPath, JsonSerializer.Serialize(new { Success = true, Checks = results }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception ex)

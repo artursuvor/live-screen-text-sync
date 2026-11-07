@@ -8,6 +8,7 @@ public sealed record UserSettings
 {
     public int IntervalMs { get; init; } = 200;
     public bool Preprocess { get; init; }
+    public bool AutoCopy { get; init; }
     public string? Language { get; init; }
     public ScreenRegion? Source { get; init; }
     public string? DisplayTopology { get; init; }

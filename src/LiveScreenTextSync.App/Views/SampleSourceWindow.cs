@@ -54,7 +54,13 @@ public sealed class SampleSourceWindow : Window
                 text.Foreground = Brushes.White;
                 text.Text = "SMALL DARK TEXT";
             }
-            else text.Text = command == "empty" ? "" : command == "change" ? "SCREEN TEXT UPDATED" : "SCREEN TEXT READY";
+            else text.Text = command switch
+            {
+                "empty" => "", "change" => "SCREEN TEXT UPDATED",
+                "ukrainian" => "ПРИВІТ СВІТ", "german" => "Grüße aus München", "german2" => "Neue Wörter 123",
+                "mixed" => "Hello Привет 123",
+                _ => "SCREEN TEXT READY"
+            };
         };
         Closed += (_, _) => commands.Stop();
     }

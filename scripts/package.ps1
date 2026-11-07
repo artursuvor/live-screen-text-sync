@@ -12,7 +12,7 @@ try {
     dotnet publish src/LiveScreenTextSync.App -c Release -r $Runtime --self-contained true -p:PublishSingleFile=false -o $publishDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Publishing failed.' }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $publishDirectory -Force
-    Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\validation.md') -Destination $publishDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'docs') -Destination $publishDirectory -Recurse -Force
     Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $archive -Force
     Get-Item -LiteralPath $archive | Select-Object FullName, Length
     Get-FileHash -LiteralPath $archive -Algorithm SHA256 | Format-List Path, Hash

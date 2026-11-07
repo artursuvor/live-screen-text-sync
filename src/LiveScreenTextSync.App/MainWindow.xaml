@@ -4,7 +4,7 @@
  <Grid x:Name="LayoutViewport" Margin="28,24">
  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
  <Grid MinHeight="{Binding ActualHeight, ElementName=LayoutViewport}">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid Margin="0,0,0,24">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel>
@@ -43,22 +43,27 @@
     </Grid>
    </Grid>
   </Border>
-  <Expander x:Name="SettingsExpander" Grid.Row="3" Header="Settings" Foreground="{StaticResource TextBrush}" Margin="0,0,0,14">
+  <Grid Grid.Row="3" Margin="0,0,0,14">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <CheckBox x:Name="AutoCopyInput" Content="Auto-copy to clipboard" Checked="AutoCopy_Changed" Unchecked="AutoCopy_Changed" ToolTip="Copy each new recognized result. Enabling also copies the current text. You can toggle this while capturing."/>
+   <TextBlock x:Name="ClipboardStatusLabel" Grid.Column="1" Text="Off" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,8,0,0"/>
+  </Grid>
+  <Expander x:Name="SettingsExpander" Grid.Row="4" Header="Settings" Foreground="{StaticResource TextBrush}" Margin="0,0,0,14">
    <Grid x:Name="SettingsPanel" Margin="0,10,0,0">
     <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <StackPanel><TextBlock Text="Interval (ms)" Style="{StaticResource Caption}" Margin="0,0,0,6"/><TextBox x:Name="IntervalInput" Text="200" AutomationProperties.Name="Capture interval in milliseconds"/></StackPanel>
-    <StackPanel Grid.Column="2"><TextBlock Text="OCR language" Style="{StaticResource Caption}" Margin="0,0,0,6"/><ComboBox x:Name="LanguageInput" DisplayMemberPath="Display" AutomationProperties.Name="OCR language"/></StackPanel>
+    <StackPanel Grid.Column="2"><TextBlock Text="OCR language" Style="{StaticResource Caption}" Margin="0,0,0,6"/><ComboBox x:Name="LanguageInput" DisplayMemberPath="Display" SelectionChanged="Language_Changed" AutomationProperties.Name="OCR language"/></StackPanel>
     <StackPanel Grid.Column="4"><CheckBox x:Name="PreprocessInput" Content="Enhance image for OCR" ToolTip="Extra grayscale and contrast correction. Small regions are enlarged automatically, even when this is off."/></StackPanel>
    </Grid>
   </Expander>
-  <Grid Grid.Row="4" Margin="0,0,0,16">
+  <Grid Grid.Row="5" Margin="0,0,0,16">
    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <Button x:Name="StartButton" Content="Start Capture" Click="Start_Click" Background="{StaticResource AccentBrush}" Foreground="#10241F" BorderBrush="{StaticResource AccentBrush}" IsEnabled="False" MinWidth="120"/>
    <Button x:Name="PauseButton" Grid.Column="1" Content="Pause" Click="Pause_Click" IsEnabled="False" Margin="10,0,0,0"/>
    <Button x:Name="StopButton" Grid.Column="2" Content="Stop" Click="Stop_Click" IsEnabled="False" Margin="10,0,0,0"/>
    <StackPanel Grid.Column="4" Orientation="Horizontal"><Button x:Name="CopyButton" Content="Copy Text" Click="Copy_Click" IsEnabled="False" Margin="0,0,10,0" ToolTip="Copy the recognized text to the clipboard."/><Button Content="Sample Text" Click="SampleText_Click" ToolTip="Open a small sample source to try screen text recognition."/></StackPanel>
   </Grid>
-  <Border Grid.Row="5" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0"><StackPanel>
+  <Border Grid.Row="6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0"><StackPanel>
    <TextBlock x:Name="StatusLabel" Text="Select a source region to get started. Text is captured into this window." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
    <TextBlock x:Name="HotkeyLabel" Text="Emergency stop: Ctrl + Alt + Shift + S   ·   Keep the source visible and unobstructed." Margin="0,7,0,0" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
   </StackPanel></Border>
