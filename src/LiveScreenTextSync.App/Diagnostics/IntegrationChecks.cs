@@ -157,7 +157,7 @@ public static class IntegrationChecks
                     await automation.WriteAsync("WPF provider compatibility check", token);
                     results.Add(new { Check = "WPF ValuePattern update preserves foreground", Passed = true });
                 }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("activated its window", StringComparison.Ordinal))
+                catch (InvalidOperationException ex) when (ex.Message.Contains("activated its window", StringComparison.Ordinal) || ex.Message.Contains("moved keyboard focus", StringComparison.Ordinal))
                 {
                     Require(!automation.HasTarget, "A focus-changing provider must be invalidated.");
                     results.Add(new { Check = "Focus-changing WPF provider is detected and invalidated", Passed = true, Limitation = "On this Windows build, UIA SetValue activates the WPF target. Use the native edit target for strict background mode." });

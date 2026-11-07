@@ -99,6 +99,7 @@ public sealed class AutomationWorker
         var target = identity!;
         if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("Empty updates are blocked.");
         var foreground = NativeMethods.GetForegroundWindow();
+        var focusedBefore = automation.GetFocusedElement();
         bool verified;
         if (target.Mechanism.EndsWith("ValuePattern", StringComparison.Ordinal))
         {
@@ -121,6 +122,10 @@ public sealed class AutomationWorker
             verified = NativeEdit.Verify(handle, text);
         }
         var after = NativeMethods.GetForegroundWindow();
+        var focusedAfter = automation.GetFocusedElement();
+        if (focusedAfter is not null && focusedAfter.CurrentProcessId == target.ProcessId &&
+            (focusedBefore is null || automation.CompareElements(focusedBefore, focusedAfter) == 0))
+            throw new InvalidOperationException("This target moved keyboard focus during the update. It is incompatible with strict background mode; synchronization stopped.");
         if (after != foreground)
         {
             NativeMethods.GetWindowThreadProcessId(after, out var activeProcess);
