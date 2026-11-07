@@ -2,9 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
-using LiveScreenTextSync.App.Automation;
 using LiveScreenTextSync.App.Capture;
-using LiveScreenTextSync.App.Interop;
 using LiveScreenTextSync.App.Services;
 using LiveScreenTextSync.App.Views;
 using LiveScreenTextSync.Core;
@@ -15,14 +13,17 @@ namespace LiveScreenTextSync.App;
 public partial class MainWindow : Window
 {
     private sealed record LanguageOption(string Tag, string Display);
-    private sealed class PreviewWriter : ITextWriter
+    private sealed class LocalWriter(Action<string> display) : ITextWriter
     {
-        public Task WriteAsync(string text, CancellationToken token) => Task.CompletedTask;
+        public Task WriteAsync(string text, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            display(text);
+            return Task.CompletedTask;
+        }
     }
-    private readonly AutomationClient automation = new();
-    private readonly DispatcherTimer health = new() { Interval = TimeSpan.FromSeconds(1) };
+
     private readonly DispatcherTimer metrics = new() { Interval = TimeSpan.FromMilliseconds(250) };
-    private readonly UserSettings loaded;
     private ScreenRegion? region;
     private SourceOutline? outline;
     private string? sourceTopology;
@@ -31,16 +32,15 @@ public partial class MainWindow : Window
     private Task? running;
     private TextConfirmation? confirmation;
     private string state = "Idle";
-    private bool previewOnly, picking, closing, busy, checkingHealth;
-    private int frameCount, writeCount;
+    private bool closing, busy;
+    private int frameCount, updateCount;
 
     public MainWindow()
     {
         InitializeComponent();
         Title = $"Live Screen Text Sync · v{typeof(App).Assembly.GetName().Version?.ToString(3)}";
-        loaded = SettingsStore.Load();
+        var loaded = SettingsStore.Load();
         IntervalInput.Text = loaded.IntervalMs.ToString();
-        ConfirmInput.IsChecked = loaded.ConfirmTwice;
         PreprocessInput.IsChecked = loaded.Preprocess;
         try
         {
@@ -49,44 +49,41 @@ public partial class MainWindow : Window
             LanguageInput.ItemsSource = languages;
             LanguageInput.SelectedItem = languages.FirstOrDefault(l => l.Tag == loaded.Language) ??
                 languages.FirstOrDefault(l => l.Tag.StartsWith("en", StringComparison.OrdinalIgnoreCase)) ?? languages.FirstOrDefault();
-            if (languages.Length == 0) StatusLabel.Text = "No Windows OCR languages are installed. Add an OCR language feature in Windows Settings.";
+            if (languages.Length == 0) StatusLabel.Text = "Install a Windows OCR language in Settings > Time & language > Language & region.";
         }
         catch (Exception ex)
         {
             Log.Warning("OCR language discovery failed: {ErrorType}", ex.GetType().Name);
-            StatusLabel.Text = "Windows OCR is unavailable. Check installed Windows OCR language features.";
+            StatusLabel.Text = "Windows OCR is unavailable. Check installed OCR language features.";
         }
-        if (loaded.Source is { } saved && loaded.DisplayTopology == Monitors.Fingerprint() && Monitors.IsValid(saved))
-        {
-            region = saved;
-            sourceTopology = loaded.DisplayTopology;
-            ShowSource();
-        }
+        if (Program.RenderPath is null && loaded.Source is { } saved && loaded.DisplayTopology == Monitors.Fingerprint() && Monitors.IsValid(saved))
+            SetSource(saved);
         SourceInitialized += (_, _) =>
         {
             hotkeys = new(this);
-            hotkeys.StopPressed += async () => await StopRunAsync("Stopped using the global hotkey.");
-            hotkeys.PickPressed += async () => await FinishPickingAsync();
-            hotkeys.CancelPressed += CancelPicking;
+            hotkeys.StopPressed += async () => await StopRunAsync("Capture stopped using the global hotkey.");
             if (!hotkeys.StopRegistered)
-            {
-                HotkeyLabel.Text = "Emergency stop hotkey is in use. Release Ctrl + Alt + Shift + S and restart this app.";
-                SetStatus("Error", "Global stop hotkey could not be registered. Synchronization is disabled.");
-            }
-            UpdateControls();
+                HotkeyLabel.Text = "Global shortcut unavailable (another copy may be running). Use Stop in this window. Keep the source visible.";
         };
-        health.Tick += async (_, _) => await CheckHealthAsync();
         metrics.Tick += (_, _) => FramesLabel.Text = $"{Volatile.Read(ref frameCount):N0} frames";
         metrics.Start();
         Closing += OnClosing;
         UpdateControls();
     }
 
+    private void SetSource(ScreenRegion source)
+    {
+        region = source;
+        sourceTopology = Monitors.Fingerprint();
+        SourceTitle.Text = $"{source.Width:N0} × {source.Height:N0} px";
+        SourceDetail.Text = $"{source.Monitor}  ·  X {source.X}, Y {source.Y}\nKeep this area visible while capturing.";
+        SetStatus("Ready", "Source selected. Press Start Capture to read text into this window.");
+    }
+
     private async void SelectSource_Click(object sender, RoutedEventArgs e)
     {
         if (busy) return;
         await StopRunAsync();
-        CancelPicking();
         busy = true;
         UpdateControls();
         outline?.Hide();
@@ -94,160 +91,64 @@ public partial class MainWindow : Window
         try
         {
             var selected = await RegionPicker.PickAsync();
-            if (selected is not null)
-            {
-                region = selected;
-                sourceTopology = Monitors.Fingerprint();
-                ShowSource();
-                SetStatus(automation.HasTarget ? "Ready" : "Idle", "Source selected. Keep this area visible while synchronizing.");
-                SaveSettings();
-            }
+            if (selected is not null) { SetSource(selected); SaveSettings(); }
         }
         catch (Exception ex) { ReportError(ex); }
-        finally { Show(); if (region is not null) ShowOutline(); busy = false; UpdateControls(); }
-    }
-
-    private void ShowSource()
-    {
-        if (region is null) return;
-        SourceTitle.Text = $"{region.Width:N0} × {region.Height:N0} px";
-        SourceDetail.Text = $"{region.Monitor}  ·  X {region.X}, Y {region.Y}\nVisible desktop capture";
+        finally { Show(); ShowOutline(); busy = false; UpdateControls(); }
     }
 
     private void ShowOutline()
     {
         outline?.Close();
-        if (region is null || closing || !Monitors.IsValid(region)) { outline = null; return; }
+        outline = null;
+        if (region is null || closing || !Monitors.IsValid(region) || Program.LocalCheckReportPath is not null) return;
         outline = new SourceOutline(region);
         outline.Show();
     }
 
-    private async void SelectTarget_Click(object sender, RoutedEventArgs e)
-    {
-        if (picking) { CancelPicking(); return; }
-        if (busy) return;
-        await StopRunAsync();
-        if (hotkeys?.BeginPicking() != true)
-        {
-            SetStatus("Error", "F8 is already registered by another application. Release it and try again.");
-            return;
-        }
-        picking = true;
-        TargetButton.Content = "Cancel Selection";
-        TargetTitle.Text = "Selecting a target…";
-        TargetDetail.Text = "Click inside the destination input, keep the pointer there, and press F8. No text will be changed.";
-        SetStatus("Idle", "Hover over the target text field and press F8. Press Esc or Cancel Selection to cancel. The field will not be changed.");
-    }
+    private async void Start_Click(object sender, RoutedEventArgs e) => await StartRunAsync();
 
-    private void CancelPicking()
+    private Task StartRunAsync()
     {
-        if (!picking) return;
-        picking = false;
-        hotkeys?.EndPicking();
-        TargetButton.Content = "Select Target";
-        if (automation.Target is { } previous)
-        {
-            TargetTitle.Text = previous.ProcessName;
-            TargetDetail.Text = $"{previous.Mechanism}\nPID {previous.ProcessId} · API supported, updates verified";
-        }
-        else
-        {
-            TargetTitle.Text = "Choose where to write";
-            TargetDetail.Text = "Compatibility is checked before starting.";
-        }
-        SetStatus(automation.HasTarget && region is not null ? "Ready" : "Idle", "Target selection cancelled.");
-    }
-
-    private async Task FinishPickingAsync()
-    {
-        if (!picking || busy) return;
-        NativeMethods.GetCursorPos(out var point);
-        picking = false;
-        hotkeys?.EndPicking();
-        TargetButton.Content = "Select Target";
-        busy = true;
-        runCancellation?.Dispose();
-        runCancellation = new();
-        var token = runCancellation.Token;
-        UpdateControls();
-        try
-        {
-            var result = await automation.InspectAsync(point.X, point.Y, token);
-            if (result is { Success: true, Target: { } target })
-            {
-                TargetTitle.Text = target.ProcessName;
-                TargetDetail.Text = $"{target.Mechanism}\nPID {target.ProcessId} · API supported, updates verified";
-                SetStatus(region is not null ? "Ready" : "Idle", result.Message);
-                SaveSettings();
-            }
-            else
-            {
-                TargetTitle.Text = "Unsupported target";
-                TargetDetail.Text = result.Message;
-                SetStatus("Unsupported Target", result.Message);
-            }
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception ex) { ReportError(ex); }
-        finally { busy = false; UpdateControls(); }
-    }
-
-    private async void Start_Click(object sender, RoutedEventArgs e) => await StartRunAsync(false);
-    private async void Preview_Click(object sender, RoutedEventArgs e) => await StartRunAsync(true);
-
-    private async Task StartRunAsync(bool preview)
-    {
-        if (busy || running is { IsCompleted: false }) return;
+        if (busy || running is { IsCompleted: false }) return Task.CompletedTask;
         if (region is null || !Monitors.IsValid(region) || sourceTopology != Monitors.Fingerprint())
-        { SetStatus("Error", "The source region or display layout changed. Select the source again."); return; }
-        if (hotkeys?.StopRegistered != true) { SetStatus("Error", "The global stop hotkey must be available before starting."); return; }
-        if (!preview && !automation.HasTarget) { SetStatus("Error", "Select a compatible target first."); return; }
+        { SetStatus("Error", "The source or display layout changed. Select the source again."); return Task.CompletedTask; }
         if (!int.TryParse(IntervalInput.Text, out var interval) || interval is < 100 or > 5000)
-        { SetStatus("Error", "Capture interval must be a whole number from 100 to 5000 ms."); return; }
-        if (LanguageInput.SelectedItem is not LanguageOption language) { SetStatus("Error", "Install and select a Windows OCR language first."); return; }
+        { SetStatus("Error", "Capture interval must be a whole number from 100 to 5000 ms."); return Task.CompletedTask; }
+        if (LanguageInput.SelectedItem is not LanguageOption language)
+        { SetStatus("Error", "Install and select a Windows OCR language first."); return Task.CompletedTask; }
         if (Math.Max(region.Width, region.Height) > Windows.Media.Ocr.OcrEngine.MaxImageDimension)
-        { SetStatus("Error", $"Select a smaller source. OCR supports dimensions up to {Windows.Media.Ocr.OcrEngine.MaxImageDimension} pixels."); return; }
-        busy = true;
-        runCancellation?.Dispose();
-        runCancellation = new();
-        var token = runCancellation.Token;
-        UpdateControls();
+        { SetStatus("Error", $"Select a smaller source. OCR supports dimensions up to {Windows.Media.Ocr.OcrEngine.MaxImageDimension} pixels."); return Task.CompletedTask; }
         try
         {
-            var resuming = state == "Paused";
-            CancelPicking();
-            if (!preview)
-            {
-                var validation = await automation.RequestAsync(new("validate"), token);
-                if (!validation.Success) throw new InvalidOperationException(validation.Message);
-            }
-            token.ThrowIfCancellationRequested();
             var capture = new DesktopCapture(region);
             WindowsOcr ocr;
             try { ocr = new(language.Tag, PreprocessInput.IsChecked == true); }
             catch { capture.Dispose(); throw; }
-            SaveSettings();
-            outline?.Hide();
-            if (!resuming || previewOnly != preview) confirmation = new(ConfirmInput.IsChecked == true);
-            else confirmation?.Configure(ConfirmInput.IsChecked == true);
-            previewOnly = preview;
-            var engine = new SyncEngine(capture, ocr, preview ? new PreviewWriter() : automation,
-                new(interval, ConfirmInput.IsChecked == true), confirmation);
+            if (state != "Paused") confirmation = new(false);
+            runCancellation?.Dispose();
+            runCancellation = new();
+            var token = runCancellation.Token;
+            var writer = new LocalWriter(text => _ = Dispatcher.BeginInvoke(() => DisplayText(text, token)));
+            var engine = new SyncEngine(capture, ocr, writer, new(interval, false), confirmation);
             engine.Updated += update =>
             {
-                if (update.Kind == SyncEventKind.Capture) { Interlocked.Increment(ref frameCount); return; }
-                if (update.Kind == SyncEventKind.Skipped) return;
-                Dispatcher.BeginInvoke(() => ApplyUpdate(update, token));
+                if (update.Kind == SyncEventKind.Capture) Interlocked.Increment(ref frameCount);
+                else if (update.Kind == SyncEventKind.OcrError)
+                    _ = Dispatcher.BeginInvoke(() => { if (!token.IsCancellationRequested) StatusLabel.Text = "OCR failed. Keeping the last captured text and retrying."; });
+                else if (update.Kind == SyncEventKind.Preview && string.IsNullOrWhiteSpace(update.Text))
+                    _ = Dispatcher.BeginInvoke(() => { if (!token.IsCancellationRequested) StatusLabel.Text = "No text detected. Keeping the last captured text."; });
             };
-            SetStatus("Running", preview ? "Preview only: recognizing locally. No target writes." : "Synchronizing in the background. Your active window stays in place.");
-            Log.Information("Session started. Preview {Preview}, interval {IntervalMs}", preview, interval);
-            health.Start();
+            outline?.Hide();
+            SetStatus("Capturing", "Reading the source into this window. Use Copy Text whenever you need it.");
+            Log.Information("Local capture started. Interval {IntervalMs}", interval);
+            SaveSettings();
             running = Task.Run(async () => { using (capture) await engine.RunAsync(token); }, CancellationToken.None);
             _ = ObserveRunAsync(running, token);
+            UpdateControls();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { ReportError(ex); }
-        finally { busy = false; UpdateControls(); }
+        return Task.CompletedTask;
     }
 
     private async Task ObserveRunAsync(Task task, CancellationToken token)
@@ -255,43 +156,37 @@ public partial class MainWindow : Window
         try { await task; }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { if (!closing) ReportError(ex); }
-        finally { health.Stop(); UpdateControls(); }
+        finally { UpdateControls(); }
     }
 
-    private void ApplyUpdate(SyncEvent update, CancellationToken token)
+    private void DisplayText(string text, CancellationToken token)
     {
-        if (token.IsCancellationRequested || state != "Running") return;
-        if (update.Kind == SyncEventKind.Preview)
-        {
-            PreviewText.Text = update.Text;
-            PreviewPlaceholder.Visibility = string.IsNullOrWhiteSpace(update.Text) ? Visibility.Visible : Visibility.Collapsed;
-            if (string.IsNullOrWhiteSpace(update.Text)) StatusLabel.Text = "No text detected. The target was left unchanged.";
-        }
-        else if (update.Kind == SyncEventKind.Written)
-        {
-            if (!previewOnly)
-            {
-                WritesLabel.Text = $"{++writeCount:N0} updates";
-                LastSyncLabel.Text = $"Synced {DateTime.Now:HH:mm:ss}";
-                StatusLabel.Text = "Text synchronized and readback verified.";
-                Log.Information("Target update verified.");
-            }
-            else StatusLabel.Text = "Preview confirmed. No text was written to another application.";
-        }
-        else if (update.Kind == SyncEventKind.OcrError) StatusLabel.Text = update.Message;
+        if (token.IsCancellationRequested || state != "Capturing" || string.IsNullOrWhiteSpace(text)) return;
+        PreviewText.Text = text;
+        PreviewPlaceholder.Visibility = Visibility.Collapsed;
+        UpdatesLabel.Text = $"{++updateCount:N0} text changes";
+        LastReadLabel.Text = $"Read {DateTime.Now:HH:mm:ss}";
+        StatusLabel.Text = "Text captured. Select it here or click Copy Text.";
+        UpdateControls();
+    }
+
+    private void Copy_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(PreviewText.Text)) return;
+        try { Clipboard.SetText(PreviewText.Text); StatusLabel.Text = "Text copied to the clipboard."; }
+        catch (System.Runtime.InteropServices.ExternalException)
+        { StatusLabel.Text = "The clipboard is busy. Try Copy Text again."; }
     }
 
     private async void Pause_Click(object sender, RoutedEventArgs e)
     {
-        if (state == "Paused") { await StartRunAsync(previewOnly); return; }
-        await StopRunAsync("Paused. Start or Resume to continue.", "Paused");
+        if (state == "Paused") { await StartRunAsync(); return; }
+        await StopRunAsync("Paused. The captured text is still available to copy.", "Paused");
     }
-    private async void Stop_Click(object sender, RoutedEventArgs e) => await StopRunAsync("Stopped. No further updates will be sent.");
+    private async void Stop_Click(object sender, RoutedEventArgs e) => await StopRunAsync("Stopped. The captured text is still available to copy.");
 
     private async Task StopRunAsync(string? message = null, string? nextState = null)
     {
-        CancelPicking();
-        health.Stop();
         if (runCancellation is not null) await runCancellation.CancelAsync();
         if (running is { } task)
         {
@@ -301,73 +196,57 @@ public partial class MainWindow : Window
         }
         confirmation?.Reject();
         running = null;
-        if (region is not null && !closing) ShowOutline();
-        SetStatus(nextState ?? (region is not null && automation.HasTarget ? "Ready" : "Idle"), message ?? "Ready to configure.");
-    }
-
-    private async Task CheckHealthAsync()
-    {
-        if (checkingHealth || previewOnly || state != "Running") return;
-        checkingHealth = true;
-        try
-        {
-            var response = await automation.RequestAsync(new("validate"), runCancellation?.Token ?? default);
-            if (!response.Success) throw new InvalidOperationException(response.Message);
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { await StopRunAsync(); ReportError(ex); }
-        finally { checkingHealth = false; }
+        if (!closing) ShowOutline();
+        SetStatus(nextState ?? (region is not null ? "Ready" : "Idle"), message ?? "Select a source or press Start Capture.");
     }
 
     private void SetStatus(string value, string message)
     {
         state = value;
         StateLabel.Text = $"●  {value}";
-        StateLabel.Foreground = new SolidColorBrush(value is "Error" or "Unsupported Target" ? Color.FromRgb(255, 177, 151) : Color.FromRgb(142, 229, 194));
+        StateLabel.Foreground = new SolidColorBrush(value == "Error" ? Color.FromRgb(255, 177, 151) : Color.FromRgb(142, 229, 194));
         StatusLabel.Text = message;
         UpdateControls();
     }
     private void UpdateControls()
     {
-        var active = state == "Running" || running is { IsCompleted: false };
+        var active = state == "Capturing" || running is { IsCompleted: false };
         SourceButton.IsEnabled = !busy && !active;
-        TargetButton.IsEnabled = !busy && !active;
         SettingsPanel.IsEnabled = !busy && !active;
-        StartButton.IsEnabled = !busy && !active && !picking && region is not null && automation.HasTarget && hotkeys?.StopRegistered == true;
-        PreviewButton.IsEnabled = !busy && !active && !picking && region is not null && hotkeys?.StopRegistered == true;
+        StartButton.IsEnabled = !busy && !active && region is not null && LanguageInput.SelectedItem is not null;
         PauseButton.IsEnabled = !busy && (active || state == "Paused");
         PauseButton.Content = state == "Paused" ? "Resume" : "Pause";
-        StopButton.IsEnabled = active || state == "Paused" || picking;
+        StopButton.IsEnabled = active || state == "Paused";
+        CopyButton.IsEnabled = !string.IsNullOrWhiteSpace(PreviewText.Text);
     }
     private void ReportError(Exception ex)
     {
-        Log.Warning("Operation failed: {ErrorType}", ex.GetType().Name);
-        SetStatus("Error", ex is InvalidOperationException or ArgumentException ? ex.Message : "The operation failed. Check the source and select the target again.");
+        Log.Warning("Capture failed: {ErrorType}", ex.GetType().Name);
+        SetStatus("Error", ex is InvalidOperationException or ArgumentException ? ex.Message : "Capture failed. Check the source and OCR language, then try again.");
     }
     public async Task HandleUnexpectedErrorAsync()
     {
         await StopRunAsync();
-        SetStatus("Error", "An unexpected error stopped synchronization. Select the source and target again.");
+        SetStatus("Error", "An unexpected error stopped capture. The last captured text is still available.");
     }
     private void SaveSettings()
     {
+        if (Program.IsDiagnostic) return;
         if (!int.TryParse(IntervalInput.Text, out var interval) || interval is < 100 or > 5000) interval = 200;
         try
         {
             SettingsStore.Save(new()
             {
-                IntervalMs = interval, ConfirmTwice = ConfirmInput.IsChecked == true,
-                Preprocess = PreprocessInput.IsChecked == true, Language = (LanguageInput.SelectedItem as LanguageOption)?.Tag,
-                Source = region, DisplayTopology = sourceTopology,
-                LastTarget = automation.Target is { } target ? target with { Name = "" } : loaded.LastTarget
+                IntervalMs = interval, Preprocess = PreprocessInput.IsChecked == true,
+                Language = (LanguageInput.SelectedItem as LanguageOption)?.Tag, Source = region, DisplayTopology = sourceTopology
             });
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         { Log.Warning("Settings could not be saved: {ErrorType}", ex.GetType().Name); }
     }
-    private void TestWindow_Click(object sender, RoutedEventArgs e)
+    private void SampleText_Click(object sender, RoutedEventArgs e)
     {
-        try { Program.StartChild("--test-target"); }
+        try { Program.StartChild("--sample-source"); }
         catch (Exception ex) { ReportError(ex); }
     }
     private async void OnClosing(object? sender, CancelEventArgs e)
@@ -380,10 +259,11 @@ public partial class MainWindow : Window
         SaveSettings();
         outline?.Close();
         hotkeys?.Dispose();
-        automation.Dispose();
         runCancellation?.Dispose();
-        health.Stop();
         metrics.Stop();
         _ = Dispatcher.BeginInvoke(Close);
     }
+
+    internal Task StartLocalCheckAsync(ScreenRegion source) { SetSource(source); return StartRunAsync(); }
+    internal Task StopLocalCheckAsync() => StopRunAsync();
 }

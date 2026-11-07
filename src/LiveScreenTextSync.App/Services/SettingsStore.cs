@@ -1,6 +1,5 @@
 using System.IO;
 using System.Text.Json;
-using LiveScreenTextSync.App.Automation;
 using LiveScreenTextSync.Core;
 
 namespace LiveScreenTextSync.App.Services;
@@ -8,12 +7,10 @@ namespace LiveScreenTextSync.App.Services;
 public sealed record UserSettings
 {
     public int IntervalMs { get; init; } = 200;
-    public bool ConfirmTwice { get; init; } = true;
     public bool Preprocess { get; init; }
     public string? Language { get; init; }
     public ScreenRegion? Source { get; init; }
     public string? DisplayTopology { get; init; }
-    public TargetInfo? LastTarget { get; init; }
 }
 
 public static class SettingsStore

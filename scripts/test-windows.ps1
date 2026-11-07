@@ -7,8 +7,8 @@ try {
     dotnet test tests/LiveScreenTextSync.Tests -c Release --no-build
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
     $assembly = Join-Path $projectRoot 'src\LiveScreenTextSync.App\bin\Release\net10.0-windows10.0.19041.0\LiveScreenTextSync.App.dll'
-    $report = Join-Path $projectRoot 'artifacts\integration-report.json'
-    dotnet $assembly --self-test $report
+    $report = Join-Path $projectRoot 'artifacts\local-capture-report.json'
+    dotnet $assembly --self-test-local $report
     if ($LASTEXITCODE -ne 0) { throw "Windows integration checks failed. Read $report" }
     $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
     if (-not $result.Success) { throw $result.Error }

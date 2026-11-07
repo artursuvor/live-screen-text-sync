@@ -1,49 +1,44 @@
 # Live Screen Text Sync
 
-A Windows desktop utility that reads a visible screen region with local OCR and synchronizes confirmed text to a compatible field in another application without moving keyboard focus.
+Read text from a visible screen region into the app, then copy it when you need it.
 
-Built with C# / .NET 10 and WPF. All recognition runs locally. Captured images stay in memory; recognized text is excluded from logs. The running utility makes no network requests.
+Version 0.2.0 simplifies the utility to local screen reading. There is no destination field to select and no compatibility check against another application.
 
 ![Application interface](docs/images/app.png)
 
 ## Quick start
 
-1. Extract the complete portable ZIP and run `LiveScreenTextSync.App.exe`. Keep all extracted files together; the package includes .NET.
-2. Click **Select Source**, then drag a rectangle within one monitor. Press **Esc** to cancel. A mint outline marks the selected area during setup.
-3. Click **Select Target**, hover over an editable field in another application, and press **F8**. Inspection does not clear or change the field.
-4. Check the compatibility result, then click **Start Sync**. The source must remain visible and unobstructed.
-5. Use **Pause / Resume**, **Stop**, or the global **Ctrl + Alt + Shift + S** stop shortcut. **Preview Only** runs OCR without writing to another app.
+1. Run `LiveScreenTextSync.App.exe` from the extracted portable folder. Keep all extracted files together; .NET is included.
+2. Click **Select Source** and drag a rectangle within one monitor. Press **Esc** to cancel.
+3. Click **Start Capture**. Recognized text appears in the app's own **Recognized Text** field and updates when the visible source changes.
+4. Click **Copy Text** to copy the complete result to the clipboard, or select text in the field and copy it normally.
+5. Use **Pause / Resume** or **Stop**. The last captured text remains available to read and copy.
 
-Use **Test Window** to open an isolated sample application. Select its `SCREEN SYNC READY` source and its **standard native edit target** for the verified background path. **Change Source** changes the sample text.
+**Sample Text** opens a small test source. Select its `SCREEN TEXT READY` line as your region, start capture, and click **Change Text** to see the app update.
 
-**Settings** lets you choose an installed OCR language, a 100–5000 ms capture interval (default 200), two-result confirmation, and optional image enhancement. With confirmation enabled, unchanged pixels are still recognized a second time to establish stability. OCR and capture run independently; old frames are discarded instead of queued.
+Keep the source visible and unobstructed, and move this app away from the selected region. If another window covers the region, its pixels become the OCR input.
 
-## Compatibility and limits
+## Settings
 
-- Standard Win32 / WinForms edit fields use bounded `WM_SETTEXT`, with process/element validation and mandatory readback. This path passed foreground and keyboard-focus preservation checks.
-- Other editable fields may expose UI Automation `ValuePattern` or `LegacyIAccessible`. API support does not guarantee that an application remains in the background. On the tested Windows build, WPF UIA writes activated the target window. The first real update can expose this behavior; the app then invalidates the target and stops. Inspection never performs a probe write.
-- Password, protected, disabled, and read-only fields are rejected. Elevated processes, browser app state, rich editors, and custom controls may need a dedicated adapter. There is no keyboard or clipboard fallback.
-- Capture reads visible desktop pixels through GDI `BitBlt`. If another window covers the source, its pixels become the input. Sources must fit within one monitor and within the Windows OCR image-size limit. Display or DPI changes invalidate the selection.
-- The portable build was tested with Windows OCR on this machine. Availability on other Windows 10/11 builds depends on their OCR runtime and installed language features. Some desktop OCR scenarios documented by Microsoft require package identity; MSIX distribution is not included in this MVP.
-- A hung target is bounded by a 3-second worker timeout. Stop cancels pending work and kills a worker if an automation request is in flight; already-completed target updates cannot be undone. Reselect the target if its worker was invalidated.
+- **Interval**: 100–5000 ms, default 200 ms.
+- **OCR language**: choose a Windows OCR language installed on the machine.
+- **Enhance image for OCR**: optional grayscale, median noise filtering, contrast, and 2× scaling when the OCR image-size limit permits it.
 
-## Target selection troubleshooting
+The app captures and recognizes asynchronously, discards stale frames, and skips unchanged images. Empty results or OCR errors preserve the last useful text. New nonempty text is displayed immediately; repeated text is not displayed again.
 
-Version 0.1.1 recognizes writable `ComboBox`, `Custom`, and focusable `Pane` roles as well as ordinary `Edit` and `Document` fields. It follows the raw accessibility path and only considers descendants under the actual pointer, so a label or container does not silently select a different nearby input.
+The optional global stop shortcut is **Ctrl + Alt + Shift + S**. If another copy owns it, capture still works and the footer tells you to use the window's **Stop** button.
 
-Click inside the destination input, keep the pointer inside it, and press **F8** while selection is active. The target card displays **Selecting a target…** during selection. If a field is rejected, its diagnostic includes the detected process, accessibility role, framework, and available value-writing patterns. A text-reading pattern alone does not provide a background setter. Password and read-only fields remain blocked.
+## Privacy and requirements
 
-Close an older running copy before launching an update, since only one instance can own the global emergency-stop shortcut. The window title displays the running version.
+OCR runs locally with `Windows.Media.Ocr`; the utility makes no network requests. Screen images and recognized text stay in memory. Only **Copy Text** or your own copy command changes the clipboard. The running capture workflow does not inspect or write to fields in other applications.
 
-## Privacy and local data
+Settings and metadata-only rolling logs live in `%LOCALAPPDATA%\LiveScreenTextSync`. Logs exclude recognized text, clipboard contents, and screenshots, and retain up to seven daily files. Source geometry and OCR preferences are saved; captured text is not saved.
 
-Settings and metadata-only rolling logs live in `%LOCALAPPDATA%\LiveScreenTextSync`. Logs contain status events and exception types, never recognized text, target contents, or screenshots. The log retains up to seven daily files.
-
-Source geometry and a target descriptor are saved in JSON. Targets must be selected again after restarting; the utility never silently reconnects to another field. Screen images and OCR results are held only in memory.
+The portable build targets x64 Windows 10 version 2004 or later / Windows 11. An installed Windows OCR language is required. Windows OCR worked on the tested machine; availability across other Windows builds depends on the OCR runtime and language features. MSIX packaging is not included.
 
 ## Development
 
-Requires Windows 10 version 2004 or later / Windows 11, the .NET 10 SDK, and at least one installed Windows OCR language. The portable package targets x64.
+Requires the .NET 10 SDK on Windows.
 
 ```powershell
 dotnet build LiveScreenTextSync.sln
@@ -51,18 +46,18 @@ dotnet test LiveScreenTextSync.sln
 dotnet run --project src/LiveScreenTextSync.App
 ```
 
-Run the integration suite on an unlocked desktop (it briefly opens application-owned test windows):
+Run the real local capture checks on an unlocked desktop (the test briefly displays an application-owned sample source):
 
 ```powershell
 .\scripts\test-windows.ps1
 ```
 
-Build a portable self-contained ZIP:
+Build a portable ZIP:
 
 ```powershell
-.\scripts\package.ps1
+.\scripts\package.ps1 -OutputName LiveScreenTextSync-v0.2.0-win-x64
 ```
 
-The output is `artifacts/LiveScreenTextSync-win-x64.zip`. GitHub Actions builds, runs core tests, and publishes a downloadable build artifact. Interactive desktop checks run locally rather than in CI.
+The result is `artifacts/LiveScreenTextSync-v0.2.0-win-x64.zip`. GitHub Actions builds, runs core tests, and publishes a downloadable artifact.
 
-See [architecture](docs/architecture.md) and [validation results](docs/validation.md) for the implementation decisions, measured behavior, and remaining manual coverage.
+See [architecture](docs/architecture.md) and [validation](docs/validation.md). The former external-target backend remains in source history and diagnostic code; the desktop capture workflow does not use it.

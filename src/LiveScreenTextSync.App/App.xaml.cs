@@ -29,6 +29,8 @@ public partial class App : Application
             return;
         }
         window.Show();
+        if (Program.LocalCheckReportPath is { } localReport)
+            _ = window.Dispatcher.BeginInvoke(async () => await Diagnostics.LocalCaptureChecks.RunAsync(window, localReport));
         if (Program.SmokeReportPath is { } report)
         {
             window.Closed += (_, _) =>

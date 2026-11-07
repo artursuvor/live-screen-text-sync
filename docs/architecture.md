@@ -1,39 +1,29 @@
-# Architecture and delivery plan
+# Architecture
 
-## Product contract
+## Current product: local text capture
 
-Select a rectangular source within one monitor, select a compatible target, and start synchronization. Capture defaults to 200 ms. OCR preserves lines; two matching successful results confirm an update. Empty results and OCR errors never clear the target. Repeated text is never written again during a session. Stop is also available through a global hotkey.
+Version 0.2.0 reads a selected visible screen region into its own WPF text field. There is no external target selection or background writing in the main workflow. Copying to the clipboard is an explicit user action.
 
-The source must remain visible. An overlapping window changes what is captured. Windows OCR languages must be installed locally. Elevated, protected, password, and arbitrary custom controls are not guaranteed to work.
+The path is:
 
-## Components
+`Region selection → physical-pixel capture → latest-frame channel → Windows OCR → text comparison → own text field`
 
-- **Core**: normalization, stability confirmation, frame comparison, settings, and a bounded latest-frame synchronization pipeline. No Windows dependency.
-- **App**: WPF selection overlays, physical-pixel capture, Windows.Media.Ocr, settings, local metadata logging, and a dedicated background automation worker.
-- **Automation worker**: retains the selected UI Automation element, runtime identity, and owning process creation time. Inspects without writing; revalidates before every write. A parent-enforced timeout kills a stuck worker rather than leaving the UI blocked or accepting another target.
-- **Tests**: deterministic pipeline and safety behavior tests, plus an opt-in Windows integration check against a dedicated test window.
+- **Core** contains frame comparison, text normalization, deduplication, optional stability tracking, and a one-frame bounded channel. Capture and OCR run independently; outdated OCR results are discarded.
+- **Capture** uses Win32 GDI BitBlt for visible desktop pixels, validates monitor topology and DPI, and stores frames only in memory.
+- **OCR** uses Windows.Media.Ocr with the selected installed recognizer. Optional enhancement applies grayscale, median noise filtering, contrast, and scaling.
+- **Local writer** dispatches nonempty changed text into the main window. Confirmation is disabled for immediate local display. Empty OCR and failures retain the previous useful text.
+- **Desktop controls** provide region selection, Start Capture, Pause / Resume, Stop, Copy Text, settings, and a sample source.
+- **Diagnostics** exercise actual capture and OCR through the real main window against an application-owned sample source. Diagnostic runs do not change persisted user settings.
 
-## Deliberate MVP decisions
+Pause retains the confirmed text to avoid duplicate updates on resume. Stop cancels work before further local display updates, releases capture resources, and keeps the text available to copy. The optional global stop shortcut is Ctrl+Alt+Shift+S; a registration collision does not block this local-only mode.
 
-Use Win32 GDI BitBlt for capture of the visible desktop. The product explicitly needs visible screen pixels, and this avoids a D3D device and Windows.Graphics.Capture permission/session lifecycle. Capture is isolated behind an interface so a WGC backend can follow. This is a departure from the recommended capture technology, not from the visible-region behavior.
+Settings persist source geometry and OCR preferences as JSON. Recognized text is never persisted or logged. The clipboard changes only when the user requests a copy.
 
-Background writing uses bounded WM_SETTEXT first for positively identified standard Win32 / WinForms edit controls. For other compatible text fields it tries native UI Automation ValuePattern, then LegacyIAccessible. The original proposed priority was refined after real Windows tests showed that UIA setters could activate their target window, while direct native edit messages preserved focus. Every write checks foreground ownership and stops if the target activates its window. Never use SendInput, simulated shortcuts, clipboard replacement, SetFocus, or SetForegroundWindow in synchronization. Do not silently reselect an element after it disappears.
+## Historical implementation
 
-An API capability check cannot prove that an arbitrary provider is focus-neutral without performing a write. Inspection never performs such a write. A provider may activate its application on its first actual update; the guard then invalidates it and stops. This limit is explicit in the README and validation report. Standard native edit controls are the verified MVP path.
+Versions 0.1.x implemented external target inspection and background writing through an isolated UI Automation worker. That backend and its diagnostic fixture are retained for reference; `MainWindow` does not instantiate it. This preserves the earlier work while removing external compatibility requirements from the current product.
 
-Settings persist source geometry and OCR preferences. A target descriptor is saved for reference, but the target must be explicitly reselected after restarting the app. This prevents stale identifiers from writing into an unintended field.
-
-## Commit milestones
-
-1. Project scaffold, architecture, and repository hygiene.
-2. Core pipeline with stability, deduplication, latest-frame behavior, and tests.
-3. Screen-region selection, capture, preprocessing, and local OCR.
-4. Target inspection and isolated, validated background writing.
-5. Finished desktop interface, settings, hotkey, integration checks, and distribution.
-
-## Reference documentation
+## References
 
 - [Windows OCR](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrengine)
-- [UI Automation ValuePattern.SetValue](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.valuepattern.setvalue)
-- [SendMessageTimeout](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendmessagetimeoutw)
 - [BitBlt](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-bitblt)
