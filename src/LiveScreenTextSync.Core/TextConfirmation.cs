@@ -30,6 +30,12 @@ public sealed class TextConfirmation(bool confirmTwice)
 
     public void Commit(string text) => committed = text;
 
+    public void Configure(bool required)
+    {
+        confirmTwice = required;
+        Reject();
+    }
+
     public void Reject()
     {
         candidate = null;

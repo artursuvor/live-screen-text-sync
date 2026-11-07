@@ -91,4 +91,40 @@ public class PipelineTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.RunAsync(cancel.Token));
         Assert.Equal("Target is gone.", error.Message);
     }
+
+    [Fact]
+    public async Task CancellationDuringOcrPreventsAnyWrite()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = 0;
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var engine = new SyncEngine(new Source(), new Recognizer((_, _) => { entered.SetResult(); return release.Task; }),
+            new Writer(_ => { writes++; return Task.CompletedTask; }), new(100, false));
+        var running = engine.RunAsync(cancel.Token);
+        await entered.Task.WaitAsync(cancel.Token);
+        await cancel.CancelAsync();
+        release.SetResult("Must not write");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+        Assert.Equal(0, writes);
+    }
+
+    [Fact]
+    public async Task ResumingWithConfirmedStateDoesNotRewriteUnchangedText()
+    {
+        var confirmation = new TextConfirmation(true);
+        confirmation.Commit("saved");
+        confirmation.Reject();
+        var skipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = 0;
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var engine = new SyncEngine(new Source(), new Recognizer((_, _) => Task.FromResult("saved")),
+            new Writer(_ => { writes++; return Task.CompletedTask; }), new(100), confirmation);
+        engine.Updated += e => { if (e.Kind == SyncEventKind.Skipped) skipped.TrySetResult(); };
+        var running = engine.RunAsync(cancel.Token);
+        await skipped.Task.WaitAsync(cancel.Token);
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+        Assert.Equal(0, writes);
+    }
 }

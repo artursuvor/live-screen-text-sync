@@ -19,7 +19,9 @@ internal static class NativeEdit
         if (owner != process) return false;
         var name = new StringBuilder(128);
         NativeMethods.GetClassName(handle, name, name.Capacity);
-        var allowed = name.ToString() is "Edit" or "RichEdit20W" or "RichEdit20A" or "RICHEDIT50W";
+        var className = name.ToString();
+        var allowed = className is "Edit" or "RichEdit20W" or "RichEdit20A" or "RICHEDIT50W" ||
+            className.StartsWith("WindowsForms10.EDIT.app.", StringComparison.OrdinalIgnoreCase);
         var style = NativeMethods.GetWindowLong(handle, -16);
         return allowed && (style & (0x0020 | 0x0800)) == 0; // ES_PASSWORD / ES_READONLY
     }

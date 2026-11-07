@@ -19,7 +19,14 @@ public partial class App : Application
             args.Handled = true;
             if (MainWindow is MainWindow main) _ = main.HandleUnexpectedErrorAsync();
         };
-        new MainWindow().Show();
+        var window = new MainWindow();
+        if (Program.RenderPath is { } path)
+        {
+            Diagnostics.UiRenderer.Render(window, path);
+            Shutdown();
+            return;
+        }
+        window.Show();
     }
 
     protected override void OnExit(ExitEventArgs e)

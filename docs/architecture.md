@@ -17,7 +17,9 @@ The source must remain visible. An overlapping window changes what is captured. 
 
 Use Win32 GDI BitBlt for capture of the visible desktop. The product explicitly needs visible screen pixels, and this avoids a D3D device and Windows.Graphics.Capture permission/session lifecycle. Capture is isolated behind an interface so a WGC backend can follow. This is a departure from the recommended capture technology, not from the visible-region behavior.
 
-Background writing tries UI Automation ValuePattern first, then MSAA IAccessible for compatible native edit controls, then bounded WM_SETTEXT for allowlisted native edit controls. Never use SendInput, simulated shortcuts, clipboard replacement, SetFocus, or SetForegroundWindow in synchronization. Do not silently reselect an element after it disappears.
+Background writing uses bounded WM_SETTEXT first for positively identified standard Win32 / WinForms edit controls. For other compatible text fields it tries native UI Automation ValuePattern, then LegacyIAccessible. The original proposed priority was refined after real Windows tests showed that UIA setters could activate their target window, while direct native edit messages preserved focus. Every write checks foreground ownership and stops if the target activates its window. Never use SendInput, simulated shortcuts, clipboard replacement, SetFocus, or SetForegroundWindow in synchronization. Do not silently reselect an element after it disappears.
+
+An API capability check cannot prove that an arbitrary provider is focus-neutral without performing a write. Inspection never performs such a write. A provider may activate its application on its first actual update; the guard then invalidates it and stops. This limit is explicit in the README and validation report. Standard native edit controls are the verified MVP path.
 
 Settings persist source geometry and OCR preferences. A target descriptor is saved for reference, but the target must be explicitly reselected after restarting the app. This prevents stale identifiers from writing into an unintended field.
 

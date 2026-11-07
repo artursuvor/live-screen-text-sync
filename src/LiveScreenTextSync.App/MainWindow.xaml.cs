@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer metrics = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly UserSettings loaded;
     private ScreenRegion? region;
+    private SourceOutline? outline;
     private string? sourceTopology;
     private GlobalHotkeys? hotkeys;
     private CancellationTokenSource? runCancellation;
@@ -42,7 +43,8 @@ public partial class MainWindow : Window
         PreprocessInput.IsChecked = loaded.Preprocess;
         try
         {
-            var languages = WindowsOcr.Languages.Select(l => new LanguageOption(l.LanguageTag, $"{l.DisplayName} ({l.LanguageTag})")).ToArray();
+            var languages = WindowsOcr.Languages.Select(l => new LanguageOption(l.LanguageTag,
+                $"{System.Globalization.CultureInfo.GetCultureInfo(l.LanguageTag).EnglishName} ({l.LanguageTag})")).ToArray();
             LanguageInput.ItemsSource = languages;
             LanguageInput.SelectedItem = languages.FirstOrDefault(l => l.Tag == loaded.Language) ??
                 languages.FirstOrDefault(l => l.Tag.StartsWith("en", StringComparison.OrdinalIgnoreCase)) ?? languages.FirstOrDefault();
@@ -86,6 +88,7 @@ public partial class MainWindow : Window
         CancelPicking();
         busy = true;
         UpdateControls();
+        outline?.Hide();
         Hide();
         try
         {
@@ -100,7 +103,7 @@ public partial class MainWindow : Window
             }
         }
         catch (Exception ex) { ReportError(ex); }
-        finally { Show(); busy = false; UpdateControls(); }
+        finally { Show(); if (region is not null) ShowOutline(); busy = false; UpdateControls(); }
     }
 
     private void ShowSource()
@@ -108,6 +111,14 @@ public partial class MainWindow : Window
         if (region is null) return;
         SourceTitle.Text = $"{region.Width:N0} × {region.Height:N0} px";
         SourceDetail.Text = $"{region.Monitor}  ·  X {region.X}, Y {region.Y}\nVisible desktop capture";
+    }
+
+    private void ShowOutline()
+    {
+        outline?.Close();
+        if (region is null || closing || !Monitors.IsValid(region)) { outline = null; return; }
+        outline = new SourceOutline(region);
+        outline.Show();
     }
 
     private async void SelectTarget_Click(object sender, RoutedEventArgs e)
@@ -142,14 +153,17 @@ public partial class MainWindow : Window
         hotkeys?.EndPicking();
         TargetButton.Content = "Select Target";
         busy = true;
+        runCancellation?.Dispose();
+        runCancellation = new();
+        var token = runCancellation.Token;
         UpdateControls();
         try
         {
-            var result = await automation.InspectAsync(point.X, point.Y);
+            var result = await automation.InspectAsync(point.X, point.Y, token);
             if (result is { Success: true, Target: { } target })
             {
                 TargetTitle.Text = target.ProcessName;
-                TargetDetail.Text = $"{target.Mechanism}\nPID {target.ProcessId} · compatible, readback required";
+                TargetDetail.Text = $"{target.Mechanism}\nPID {target.ProcessId} · API supported, updates verified";
                 SetStatus(region is not null ? "Ready" : "Idle", result.Message);
                 SaveSettings();
             }
@@ -160,6 +174,7 @@ public partial class MainWindow : Window
                 SetStatus("Unsupported Target", result.Message);
             }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { ReportError(ex); }
         finally { busy = false; UpdateControls(); }
     }
@@ -180,6 +195,9 @@ public partial class MainWindow : Window
         if (Math.Max(region.Width, region.Height) > Windows.Media.Ocr.OcrEngine.MaxImageDimension)
         { SetStatus("Error", $"Select a smaller source. OCR supports dimensions up to {Windows.Media.Ocr.OcrEngine.MaxImageDimension} pixels."); return; }
         busy = true;
+        runCancellation?.Dispose();
+        runCancellation = new();
+        var token = runCancellation.Token;
         UpdateControls();
         try
         {
@@ -187,19 +205,19 @@ public partial class MainWindow : Window
             CancelPicking();
             if (!preview)
             {
-                var validation = await automation.RequestAsync(new("validate"));
+                var validation = await automation.RequestAsync(new("validate"), token);
                 if (!validation.Success) throw new InvalidOperationException(validation.Message);
             }
+            token.ThrowIfCancellationRequested();
             var capture = new DesktopCapture(region);
             WindowsOcr ocr;
             try { ocr = new(language.Tag, PreprocessInput.IsChecked == true); }
             catch { capture.Dispose(); throw; }
             SaveSettings();
+            outline?.Hide();
             if (!resuming || previewOnly != preview) confirmation = new(ConfirmInput.IsChecked == true);
+            else confirmation?.Configure(ConfirmInput.IsChecked == true);
             previewOnly = preview;
-            runCancellation?.Dispose();
-            runCancellation = new();
-            var token = runCancellation.Token;
             var engine = new SyncEngine(capture, ocr, preview ? new PreviewWriter() : automation,
                 new(interval, ConfirmInput.IsChecked == true), confirmation);
             engine.Updated += update =>
@@ -214,6 +232,7 @@ public partial class MainWindow : Window
             running = Task.Run(async () => { using (capture) await engine.RunAsync(token); }, CancellationToken.None);
             _ = ObserveRunAsync(running, token);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { ReportError(ex); }
         finally { busy = false; UpdateControls(); }
     }
@@ -269,6 +288,7 @@ public partial class MainWindow : Window
         }
         confirmation?.Reject();
         running = null;
+        if (region is not null && !closing) ShowOutline();
         SetStatus(nextState ?? (region is not null && automation.HasTarget ? "Ready" : "Idle"), message ?? "Ready to configure.");
     }
 
@@ -345,11 +365,12 @@ public partial class MainWindow : Window
         IsEnabled = false;
         await StopRunAsync();
         SaveSettings();
+        outline?.Close();
         hotkeys?.Dispose();
         automation.Dispose();
         runCancellation?.Dispose();
         health.Stop();
         metrics.Stop();
-        Close();
+        _ = Dispatcher.BeginInvoke(Close);
     }
 }

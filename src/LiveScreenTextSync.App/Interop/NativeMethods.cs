@@ -5,6 +5,7 @@ namespace LiveScreenTextSync.App.Interop;
 
 internal static class NativeMethods
 {
+    [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(nint context);
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -47,6 +48,7 @@ internal static class NativeMethods
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(nint window, StringBuilder name, int count);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] public static extern int GetWindowLong(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] public static extern int SetWindowLong(nint window, int index, int value);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
     public static extern nint SendText(nint window, uint message, nuint wParam, string value, uint flags, uint timeout, out nuint result);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageTimeoutW", SetLastError = true)]

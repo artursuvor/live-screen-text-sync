@@ -13,7 +13,7 @@ namespace LiveScreenTextSync.App.Views;
 
 public sealed record FixturePoint(int X, int Y);
 public sealed record FixtureInfo(ScreenRegion Source, FixturePoint Target, FixturePoint ReadOnly,
-    FixturePoint Password, FixturePoint Native, int ProcessId);
+    FixturePoint Password, FixturePoint Native, long NativeHandle, int ProcessId);
 public sealed record FixtureState(string Text, int Changes);
 
 public sealed class TestTargetWindow : Window
@@ -53,6 +53,7 @@ public sealed class TestTargetWindow : Window
         AutomationProperties.SetAutomationId(password, "FixturePasswordTarget");
         var index = Array.IndexOf(args, "--fixture-info");
         if (index >= 0 && index + 1 < args.Length) infoPath = args[index + 1];
+        Topmost = infoPath is not null;
         target.TextChanged += (_, _) => { changes++; SaveState(); };
         ContentRendered += (_, _) =>
         {
@@ -61,7 +62,7 @@ public sealed class TestTargetWindow : Window
             var p2 = sourcePanel.PointToScreen(new Point(sourcePanel.ActualWidth - 2, sourcePanel.ActualHeight - 2));
             var monitor = Monitors.GetAll().First(m => p1.X >= m.X && p1.X < m.X + m.Width && p1.Y >= m.Y && p1.Y < m.Y + m.Height);
             var info = new FixtureInfo(new((int)p1.X, (int)p1.Y, (int)(p2.X - p1.X), (int)(p2.Y - p1.Y), monitor.Device),
-                Center(target), Center(readOnly), Center(password), Center(host), Environment.ProcessId);
+                Center(target), Center(readOnly), Center(password), Center(host), native.Handle.ToInt64(), Environment.ProcessId);
             File.WriteAllText(infoPath, JsonSerializer.Serialize(info));
             SaveState();
             commands.Start();

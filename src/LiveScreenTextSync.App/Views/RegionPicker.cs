@@ -30,6 +30,10 @@ public sealed class RegionPicker : Window
         Topmost = true;
         ShowInTaskbar = false;
         Cursor = Cursors.Cross;
+        Width = monitor.Width * 96.0 / monitor.Dpi;
+        Height = monitor.Height * 96.0 / monitor.Dpi;
+        Left = monitor.X * 96.0 / monitor.Dpi;
+        Top = monitor.Y * 96.0 / monitor.Dpi;
         Content = canvas;
         canvas.Children.Add(new TextBlock
         {
@@ -37,7 +41,7 @@ public sealed class RegionPicker : Window
             Background = new SolidColorBrush(Color.FromRgb(12, 22, 32)), Padding = new Thickness(16), Margin = new Thickness(24)
         });
         canvas.Children.Add(selection);
-        SourceInitialized += (_, _) => NativeMethods.SetWindowPos(new WindowInteropHelper(this).Handle, -1,
+        Loaded += (_, _) => NativeMethods.SetWindowPos(new WindowInteropHelper(this).Handle, -1,
             monitor.X, monitor.Y, monitor.Width, monitor.Height, 0x0040);
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Cancelled?.Invoke(); };
         MouseLeftButtonDown += (_, e) => { anchor = e.GetPosition(canvas); CaptureMouse(); };

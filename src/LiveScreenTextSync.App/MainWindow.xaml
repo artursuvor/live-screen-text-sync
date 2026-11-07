@@ -1,6 +1,9 @@
 <Window x:Class="LiveScreenTextSync.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Live Screen Text Sync" Width="980" Height="820" MinWidth="840" MinHeight="720" WindowStartupLocation="CenterScreen">
- <Grid Margin="28,24">
+        Title="Live Screen Text Sync" Width="980" Height="820" MinWidth="840" MinHeight="720" WindowStartupLocation="CenterScreen"
+        Style="{StaticResource {x:Type Window}}">
+ <Grid x:Name="LayoutViewport" Margin="28,24">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+ <Grid MinHeight="{Binding ActualHeight, ElementName=LayoutViewport}">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid Margin="0,0,0,24">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -44,7 +47,7 @@
     </Grid>
    </Grid>
   </Border>
-  <Expander Grid.Row="3" Header="Settings" Foreground="{StaticResource TextBrush}" Margin="0,0,0,14">
+  <Expander x:Name="SettingsExpander" Grid.Row="3" Header="Settings" Foreground="{StaticResource TextBrush}" Margin="0,0,0,14">
    <Grid x:Name="SettingsPanel" Margin="0,10,0,0">
     <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <StackPanel><TextBlock Text="Interval (ms)" Style="{StaticResource Caption}" Margin="0,0,0,6"/><TextBox x:Name="IntervalInput" Text="200" AutomationProperties.Name="Capture interval in milliseconds"/></StackPanel>
@@ -63,5 +66,7 @@
    <TextBlock x:Name="StatusLabel" Text="Select a source region and a compatible target to get started." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
    <TextBlock x:Name="HotkeyLabel" Text="Emergency stop: Ctrl + Alt + Shift + S   ·   Keep the source visible and unobstructed." Margin="0,7,0,0" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
   </StackPanel></Border>
+ </Grid>
+ </ScrollViewer>
  </Grid>
 </Window>
