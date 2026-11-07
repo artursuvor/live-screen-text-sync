@@ -43,8 +43,10 @@ public sealed class AutomationClient : ITextWriter, IDisposable
             await worker!.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request).AsMemory(), timeout.Token).ConfigureAwait(false);
             await worker.StandardInput.FlushAsync(timeout.Token).ConfigureAwait(false);
             var line = await worker.StandardOutput.ReadLineAsync(timeout.Token).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<WorkerResponse>(line ?? throw new InvalidOperationException("The automation worker exited unexpectedly."))
+            var response = JsonSerializer.Deserialize<WorkerResponse>(line ?? throw new InvalidOperationException("The automation worker exited unexpectedly."))
                 ?? throw new InvalidOperationException("Invalid automation response.");
+            if (!response.Success) Target = null;
+            return response;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {

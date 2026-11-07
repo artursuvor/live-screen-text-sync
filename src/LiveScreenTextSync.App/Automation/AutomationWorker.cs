@@ -16,6 +16,8 @@ public sealed class AutomationWorker
     {
         Console.InputEncoding = Encoding.UTF8;
         Console.OutputEncoding = new UTF8Encoding(false);
+        using var parent = GetParentId() > 0 ? Process.GetProcessById(GetParentId()) : null;
+        using var watchdog = new Timer(_ => { if (parent?.HasExited == true) Environment.Exit(0); }, null, 1000, 1000);
         var worker = new AutomationWorker();
         string? line;
         while ((line = Console.ReadLine()) is not null)
