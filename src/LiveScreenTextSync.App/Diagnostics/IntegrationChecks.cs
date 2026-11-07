@@ -150,7 +150,8 @@ public static class IntegrationChecks
                 Require(NativeEdit.Verify((nint)info.NativeHandle, "MSAA background update"), "MSAA readback mismatch.");
                 results.Add(new { Check = "MSAA IAccessible write", Passed = true });
 
-                await automation.InspectAsync(info.Target.X, info.Target.Y, token);
+                var wpf = await automation.InspectAsync(info.Target.X, info.Target.Y, token);
+                Require(wpf.Success && wpf.Target?.ProcessId == fixture.Id && wpf.Target.AutomationId == "FixtureEditableTarget", "WPF compatibility check resolved to another target.");
                 try
                 {
                     await automation.WriteAsync("WPF provider compatibility check", token);
@@ -161,7 +162,8 @@ public static class IntegrationChecks
                     Require(!automation.HasTarget, "A focus-changing provider must be invalidated.");
                     results.Add(new { Check = "Focus-changing WPF provider is detected and invalidated", Passed = true, Limitation = "On this Windows build, UIA SetValue activates the WPF target. Use the native edit target for strict background mode." });
                 }
-                await automation.InspectAsync(info.Native.X, info.Native.Y, token);
+                var hangTarget = await automation.InspectAsync(info.Native.X, info.Native.Y, token);
+                Require(hangTarget.Success && hangTarget.Target?.ProcessId == fixture.Id, "Hang check resolved to another target.");
 
                 var hotkeyWindow = new Window { Width = 1, Height = 1, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None, Opacity = 0 };
                 hotkeyWindow.Show();

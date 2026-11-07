@@ -1,0 +1,26 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore LiveScreenTextSync.sln
+      - run: dotnet build LiveScreenTextSync.sln -c Release --no-restore
+      - run: dotnet test LiveScreenTextSync.sln -c Release --no-build --verbosity normal
+      - run: dotnet publish src/LiveScreenTextSync.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiveScreenTextSync-win-x64
+          path: artifacts/app

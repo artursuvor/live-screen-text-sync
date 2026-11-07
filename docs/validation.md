@@ -35,7 +35,7 @@ The portable Windows OCR engine worked on this machine with the installed en-US 
 
 ## Visual checks and remaining manual coverage
 
-The real WPF layout was rendered and inspected in its default, settings-expanded, and minimum-size states. The smaller layout scrolls to keep controls accessible. No user screen images are included in these renders.
+The real WPF layout was rendered and inspected in its default, settings-expanded, and minimum-size states. The smaller layout scrolls to keep controls accessible. No user screen images are included in these renders. A separate smoke check verifies application startup and clean window shutdown without an unhandled UI exception.
 
 Manual acceptance still needed on additional hardware: dragging regions across multiple monitors with different DPI settings, actual global-hotkey delivery while minimized, display reconnects, and compatibility with the user's intended third-party applications. Browser-controlled app state and complex editors may require dedicated adapters.
 

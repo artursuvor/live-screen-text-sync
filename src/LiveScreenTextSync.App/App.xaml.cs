@@ -7,6 +7,7 @@ namespace LiveScreenTextSync.App;
 
 public partial class App : Application
 {
+    private bool smokeFailed;
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -16,6 +17,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error("Unhandled UI operation failed: {ErrorType}", args.Exception.GetType().Name);
+            smokeFailed = true;
             args.Handled = true;
             if (MainWindow is MainWindow main) _ = main.HandleUnexpectedErrorAsync();
         };
@@ -27,6 +29,15 @@ public partial class App : Application
             return;
         }
         window.Show();
+        if (Program.SmokeReportPath is { } report)
+        {
+            window.Closed += (_, _) =>
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+                File.WriteAllText(report, System.Text.Json.JsonSerializer.Serialize(new { Success = !smokeFailed, WindowClosed = true }));
+            };
+            _ = window.Dispatcher.BeginInvoke(async () => { await Task.Delay(250); window.Close(); });
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
