@@ -62,34 +62,100 @@ public sealed class AutomationWorker
         var process = selected.CurrentProcessId;
         if (process == Environment.ProcessId || process == GetParentId())
             return new(false, "Select a field in another application, or open the separate test target.");
-        for (var level = 0; level < 4 && selected is not null; level++)
+
+        // Providers may return a text leaf, a combo box, or an enclosing pane. Resolve only
+        // descendants under the actual pointer; never select a nearby or unrelated input.
+        selected = DeepestAtPoint(selected, process, x, y);
+        var path = new List<UIA.IUIAutomationElement>();
+        for (var level = 0; level < 20 && selected is not null; level++)
         {
             if (selected.CurrentProcessId != process) break;
-            if (selected.CurrentIsPassword != 0) return new(false, "Password and protected fields are not supported.");
-            if (selected.CurrentIsEnabled != 0 && selected.CurrentControlType is 50004 or 50030)
+            path.Add(selected);
+            var legacy = Pattern<UIA.IUIAutomationLegacyIAccessiblePattern>(selected, LegacyPatternId);
+            if (selected.CurrentIsPassword != 0 || (legacy is not null && (legacy.CurrentState & 0x20000000) != 0))
+                return new(false, "Password and protected fields are not supported.");
+            if (selected.CurrentControlType == 50032) break; // Do not walk outside the hit window.
+            selected = automation.RawViewWalker.GetParentElement(selected);
+        }
+
+        foreach (var candidate in path)
+        {
+            if (candidate.CurrentIsEnabled == 0 || !Contains(candidate, x, y)) continue;
+            var type = candidate.CurrentControlType;
+            var textField = type is 50004 or 50030 or 50003; // Edit, Document, ComboBox
+            var customField = type is 50025 or 50033 && candidate.CurrentIsKeyboardFocusable != 0;
+            if (textField || customField)
             {
                 string? mechanism = null;
+                var value = Pattern<UIA.IUIAutomationValuePattern>(candidate, ValuePatternId);
+                if (value is { CurrentIsReadOnly: not 0 })
+                    return new(false, $"{Describe(candidate)} This field is read-only. Select an editable input.");
                 // Native edit messages avoid the activation observed with UIA setters on this Windows build.
-                if (NativeEdit.IsWritable(selected.CurrentNativeWindowHandle, process) &&
-                    automation.CompareElements(automation.ElementFromHandle(selected.CurrentNativeWindowHandle), selected) != 0)
+                if (NativeEdit.IsWritable(candidate.CurrentNativeWindowHandle, process) &&
+                    automation.CompareElements(automation.ElementFromHandle(candidate.CurrentNativeWindowHandle), candidate) != 0)
                     mechanism = "Win32 · WM_SETTEXT";
-                else if (Pattern<UIA.IUIAutomationValuePattern>(selected, ValuePatternId) is { CurrentIsReadOnly: 0 })
+                else if (value is { CurrentIsReadOnly: 0 })
                     mechanism = "UI Automation · ValuePattern";
-                else if (WritableLegacy(selected) is not null)
+                else if (WritableLegacy(candidate) is not null)
                     mechanism = "UI Automation · LegacyIAccessible";
                 if (mechanism is not null)
                 {
                     using var owner = Process.GetProcessById(process);
                     identity = new(process, owner.StartTime.ToUniversalTime().Ticks, owner.ProcessName,
-                        selected.CurrentName, selected.CurrentAutomationId, selected.CurrentClassName, mechanism, selected.GetRuntimeId());
-                    element = selected;
+                        candidate.CurrentName, candidate.CurrentAutomationId, candidate.CurrentClassName, mechanism, candidate.GetRuntimeId());
+                    element = candidate;
                     return new(true, "Compatible. Inspection did not change the field.", identity);
                 }
-                return new(false, "This field does not expose a supported background write mechanism.");
+                // A child document may omit setters while its containing editable combo exposes them.
             }
-            selected = automation.ControlViewWalker.GetParentElement(selected);
         }
-        return new(false, "Point at an editable text field. This element does not support background writing.");
+        var hit = path.FirstOrDefault();
+        var description = hit is null ? "No accessible element was found." : Describe(hit);
+        return new(false, $"{description} No writable ValuePattern or LegacyIAccessible was found under the pointer. Click inside the input, keep the pointer there, and select it again. Some custom editors expose text for reading only.");
+    }
+
+    private UIA.IUIAutomationElement DeepestAtPoint(UIA.IUIAutomationElement root, int process, int x, int y)
+    {
+        var current = root;
+        var remaining = 96;
+        for (var depth = 0; depth < 12 && remaining > 0; depth++)
+        {
+            UIA.IUIAutomationElement? best = null;
+            long area = long.MaxValue;
+            var child = automation.RawViewWalker.GetFirstChildElement(current);
+            while (child is not null && remaining-- > 0)
+            {
+                if (child.CurrentProcessId == process && child.CurrentIsOffscreen == 0 && Contains(child, x, y))
+                {
+                    var bounds = child.CurrentBoundingRectangle;
+                    var childArea = (long)(bounds.right - bounds.left) * (bounds.bottom - bounds.top);
+                    if (childArea < area) { best = child; area = childArea; }
+                }
+                child = automation.RawViewWalker.GetNextSiblingElement(child);
+            }
+            if (best is null) break;
+            current = best;
+        }
+        return current;
+    }
+
+    private static bool Contains(UIA.IUIAutomationElement selected, int x, int y)
+    {
+        var bounds = selected.CurrentBoundingRectangle;
+        return x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom;
+    }
+
+    private static string Describe(UIA.IUIAutomationElement selected)
+    {
+        using var owner = Process.GetProcessById(selected.CurrentProcessId);
+        var type = selected.CurrentControlType switch
+        {
+            50003 => "ComboBox", 50004 => "Edit", 50020 => "Text", 50025 => "Custom", 50030 => "Document",
+            50032 => "Window", 50033 => "Pane", var id => $"Control {id}"
+        };
+        var value = Pattern<UIA.IUIAutomationValuePattern>(selected, ValuePatternId);
+        var legacy = Pattern<UIA.IUIAutomationLegacyIAccessiblePattern>(selected, LegacyPatternId);
+        return $"Detected {owner.ProcessName} / {type} / {selected.CurrentFrameworkId}. ValuePattern: {(value is null ? "unavailable" : value.CurrentIsReadOnly != 0 ? "read-only" : "writable")}; LegacyIAccessible: {(legacy is null ? "unavailable" : "available")}.";
     }
 
     private WorkerResponse Write(string text)
@@ -157,7 +223,7 @@ public sealed class AutomationWorker
     private static UIA.IUIAutomationLegacyIAccessiblePattern? WritableLegacy(UIA.IUIAutomationElement selected)
     {
         var legacy = Pattern<UIA.IUIAutomationLegacyIAccessiblePattern>(selected, LegacyPatternId);
-        return legacy is not null && legacy.CurrentRole == 0x2A && (legacy.CurrentState & (0x1 | 0x40 | 0x20000000)) == 0 ? legacy : null;
+        return legacy is not null && legacy.CurrentRole is 0x2A or 0x2E && (legacy.CurrentState & (0x1 | 0x40 | 0x20000000)) == 0 ? legacy : null;
     }
     private static int GetParentId() => int.TryParse(Environment.GetEnvironmentVariable("LSTS_PARENT_PID"), out var pid) ? pid : -1;
 }

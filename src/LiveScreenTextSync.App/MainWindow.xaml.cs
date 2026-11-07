@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"Live Screen Text Sync · v{typeof(App).Assembly.GetName().Version?.ToString(3)}";
         loaded = SettingsStore.Load();
         IntervalInput.Text = loaded.IntervalMs.ToString();
         ConfirmInput.IsChecked = loaded.ConfirmTwice;
@@ -133,6 +134,8 @@ public partial class MainWindow : Window
         }
         picking = true;
         TargetButton.Content = "Cancel Selection";
+        TargetTitle.Text = "Selecting a target…";
+        TargetDetail.Text = "Click inside the destination input, keep the pointer there, and press F8. No text will be changed.";
         SetStatus("Idle", "Hover over the target text field and press F8. Press Esc or Cancel Selection to cancel. The field will not be changed.");
     }
 
@@ -142,6 +145,16 @@ public partial class MainWindow : Window
         picking = false;
         hotkeys?.EndPicking();
         TargetButton.Content = "Select Target";
+        if (automation.Target is { } previous)
+        {
+            TargetTitle.Text = previous.ProcessName;
+            TargetDetail.Text = $"{previous.Mechanism}\nPID {previous.ProcessId} · API supported, updates verified";
+        }
+        else
+        {
+            TargetTitle.Text = "Choose where to write";
+            TargetDetail.Text = "Compatibility is checked before starting.";
+        }
         SetStatus(automation.HasTarget && region is not null ? "Ready" : "Idle", "Target selection cancelled.");
     }
 

@@ -43,6 +43,17 @@ public static class IntegrationChecks
                 Require(ReadState(infoPath).Text == initial.Text && ReadState(infoPath).Changes == initial.Changes, "Inspection must not modify the target.");
                 results.Add(new { Check = "Target inspection preserves contents", Passed = true, inspected.Target!.Mechanism });
 
+                foreach (var field in new[] { ("ComboBox", info.Combo, "FixtureComboTarget"), ("Custom", info.Custom, "FixtureCustomTarget") })
+                {
+                    var resolved = await automation.InspectAsync(field.Item2.X, field.Item2.Y, token);
+                    Require(resolved.Success && resolved.Target?.ProcessId == fixture.Id && resolved.Target.AutomationId == field.Item3,
+                        $"Writable {field.Item1} field was incorrectly rejected: {resolved.Message}");
+                    results.Add(new { Check = $"Writable {field.Item1} accessibility role is accepted", Passed = true });
+                }
+                var label = await automation.InspectAsync(info.Source.X + info.Source.Width / 2, info.Source.Y + info.Source.Height / 2, token);
+                Require(!label.Success && label.Message.Contains("Detected", StringComparison.Ordinal), "A non-editable label must not select a different nearby input and must explain the rejection.");
+                results.Add(new { Check = "Non-editable label is diagnosed without selecting a nearby field", Passed = true });
+
                 foreach (var field in new[] { ("Read-only target rejected", info.ReadOnly), ("Password target rejected", info.Password) })
                 {
                     var rejected = await automation.InspectAsync(field.Item2.X, field.Item2.Y, token);
@@ -167,7 +178,8 @@ public static class IntegrationChecks
 
                 var hotkeyWindow = new Window { Width = 1, Height = 1, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None, Opacity = 0 };
                 hotkeyWindow.Show();
-                using (var keys = new GlobalHotkeys(hotkeyWindow))
+                // Use a separate test chord so a running production utility can retain its emergency stop.
+                using (var keys = new GlobalHotkeys(hotkeyWindow, stopVirtualKey: 0x7B))
                 {
                     Require(keys.StopRegistered, "Emergency stop hotkey registration failed.");
                     Require(keys.BeginPicking(), "Target picker hotkey registration failed.");

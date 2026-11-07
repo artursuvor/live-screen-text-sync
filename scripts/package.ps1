@@ -1,8 +1,11 @@
-param([string]$Runtime = 'win-x64')
+param(
+    [string]$Runtime = 'win-x64',
+    [ValidatePattern('^[A-Za-z0-9._-]+$')][string]$OutputName = 'LiveScreenTextSync-win-x64'
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$publishDirectory = Join-Path $projectRoot "artifacts\LiveScreenTextSync-$Runtime"
-$archive = Join-Path $projectRoot "artifacts\LiveScreenTextSync-$Runtime.zip"
+$publishDirectory = Join-Path $projectRoot "artifacts\$OutputName"
+$archive = Join-Path $projectRoot "artifacts\$OutputName.zip"
 
 Push-Location $projectRoot
 try {

@@ -8,6 +8,8 @@ The core suite has 14 passing tests covering text normalization, stable confirma
 
 The Windows integration suite exercises an isolated application-owned fixture. It checks the fixture process identity before any write, and does not write to existing user applications.
 
+Version 0.1.1 extends the suite to 18 passing checks: writable `ComboBox` and `Custom` accessibility roles are accepted, while pointing at a plain text label is rejected with a diagnostic instead of selecting a nearby input. The hotkey fixture uses Ctrl+Alt+Shift+F12 so it can run alongside the production utility, whose stop shortcut remains Ctrl+Alt+Shift+S. A real F8 selection through the original desktop interface was also verified against the native test field.
+
 | Check | Result |
 | --- | --- |
 | Inspect target without changing its contents | Passed |

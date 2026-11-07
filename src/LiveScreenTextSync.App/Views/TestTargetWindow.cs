@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -13,7 +14,7 @@ namespace LiveScreenTextSync.App.Views;
 
 public sealed record FixturePoint(int X, int Y);
 public sealed record FixtureInfo(ScreenRegion Source, FixturePoint Target, FixturePoint ReadOnly,
-    FixturePoint Password, FixturePoint Native, long NativeHandle, int ProcessId);
+    FixturePoint Password, FixturePoint Native, long NativeHandle, int ProcessId, FixturePoint Combo, FixturePoint Custom);
 public sealed record FixtureState(string Text, int Changes);
 
 public sealed class TestTargetWindow : Window
@@ -23,6 +24,8 @@ public sealed class TestTargetWindow : Window
     private readonly TextBox readOnly = new() { Text = "Read-only field — must be rejected", IsReadOnly = true, Height = 36 };
     private readonly PasswordBox password = new() { Password = "test-only-password", Height = 36 };
     private readonly System.Windows.Forms.TextBox native = new() { Text = "Native edit test", Multiline = true, Dock = System.Windows.Forms.DockStyle.Fill };
+    private readonly TextBox combo = new RoleTextBox(AutomationControlType.ComboBox) { Text = "Address-style editable control", Height = 34 };
+    private readonly TextBox custom = new RoleTextBox(AutomationControlType.Custom) { Text = "Custom-role editable control", Height = 34 };
     private readonly DispatcherTimer commands = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly string? infoPath;
     private int changes;
@@ -30,7 +33,7 @@ public sealed class TestTargetWindow : Window
     public TestTargetWindow(string[] args)
     {
         Title = "Live Screen Text Sync — Test Target";
-        Width = 650; Height = 690; Left = 24; Top = 32;
+        Width = 650; Height = 850; Left = 24; Top = 32;
         Background = Brushes.White; Foreground = Brushes.Black;
         FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         var panel = new StackPanel { Margin = new Thickness(24) };
@@ -48,9 +51,13 @@ public sealed class TestTargetWindow : Window
         AddLabel(panel, "Standard native edit target (Win32 / MSAA)");
         var host = new WindowsFormsHost { Child = native, Height = 52 };
         panel.Children.Add(host);
+        AddLabel(panel, "Address-style field (ComboBox accessibility role)"); panel.Children.Add(combo);
+        AddLabel(panel, "Custom editor (Custom accessibility role)"); panel.Children.Add(custom);
         AutomationProperties.SetAutomationId(target, "FixtureEditableTarget");
         AutomationProperties.SetAutomationId(readOnly, "FixtureReadOnlyTarget");
         AutomationProperties.SetAutomationId(password, "FixturePasswordTarget");
+        AutomationProperties.SetAutomationId(combo, "FixtureComboTarget");
+        AutomationProperties.SetAutomationId(custom, "FixtureCustomTarget");
         var index = Array.IndexOf(args, "--fixture-info");
         if (index >= 0 && index + 1 < args.Length) infoPath = args[index + 1];
         Topmost = infoPath is not null;
@@ -62,7 +69,7 @@ public sealed class TestTargetWindow : Window
             var p2 = sourcePanel.PointToScreen(new Point(sourcePanel.ActualWidth - 2, sourcePanel.ActualHeight - 2));
             var monitor = Monitors.GetAll().First(m => p1.X >= m.X && p1.X < m.X + m.Width && p1.Y >= m.Y && p1.Y < m.Y + m.Height);
             var info = new FixtureInfo(new((int)p1.X, (int)p1.Y, (int)(p2.X - p1.X), (int)(p2.Y - p1.Y), monitor.Device),
-                Center(target), Center(readOnly), Center(password), Center(host), native.Handle.ToInt64(), Environment.ProcessId);
+                Center(target), Center(readOnly), Center(password), Center(host), native.Handle.ToInt64(), Environment.ProcessId, Center(combo), Center(custom));
             File.WriteAllText(infoPath, JsonSerializer.Serialize(info));
             SaveState();
             commands.Start();
@@ -93,5 +100,14 @@ public sealed class TestTargetWindow : Window
     private void SaveState()
     {
         if (infoPath is not null) File.WriteAllText(infoPath + ".state", JsonSerializer.Serialize(new FixtureState(target.Text, changes)));
+    }
+
+    private sealed class RoleTextBox(AutomationControlType role) : TextBox
+    {
+        protected override AutomationPeer OnCreateAutomationPeer() => new RolePeer(this, role);
+    }
+    private sealed class RolePeer(TextBox owner, AutomationControlType role) : TextBoxAutomationPeer(owner)
+    {
+        protected override AutomationControlType GetAutomationControlTypeCore() => role;
     }
 }

@@ -27,6 +27,14 @@ Use **Test Window** to open an isolated sample application. Select its `SCREEN S
 - The portable build was tested with Windows OCR on this machine. Availability on other Windows 10/11 builds depends on their OCR runtime and installed language features. Some desktop OCR scenarios documented by Microsoft require package identity; MSIX distribution is not included in this MVP.
 - A hung target is bounded by a 3-second worker timeout. Stop cancels pending work and kills a worker if an automation request is in flight; already-completed target updates cannot be undone. Reselect the target if its worker was invalidated.
 
+## Target selection troubleshooting
+
+Version 0.1.1 recognizes writable `ComboBox`, `Custom`, and focusable `Pane` roles as well as ordinary `Edit` and `Document` fields. It follows the raw accessibility path and only considers descendants under the actual pointer, so a label or container does not silently select a different nearby input.
+
+Click inside the destination input, keep the pointer inside it, and press **F8** while selection is active. The target card displays **Selecting a target…** during selection. If a field is rejected, its diagnostic includes the detected process, accessibility role, framework, and available value-writing patterns. A text-reading pattern alone does not provide a background setter. Password and read-only fields remain blocked.
+
+Close an older running copy before launching an update, since only one instance can own the global emergency-stop shortcut. The window title displays the running version.
+
 ## Privacy and local data
 
 Settings and metadata-only rolling logs live in `%LOCALAPPDATA%\LiveScreenTextSync`. Logs contain status events and exception types, never recognized text, target contents, or screenshots. The log retains up to seven daily files.

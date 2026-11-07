@@ -13,12 +13,12 @@ public sealed class GlobalHotkeys : IDisposable
     public event Action? PickPressed;
     public event Action? CancelPressed;
 
-    public GlobalHotkeys(Window window)
+    public GlobalHotkeys(Window window, uint stopVirtualKey = 0x53)
     {
         handle = new WindowInteropHelper(window).Handle;
         source = HwndSource.FromHwnd(handle);
         source.AddHook(OnMessage);
-        StopRegistered = NativeMethods.RegisterHotKey(handle, 1, 0x4007, 0x53); // Ctrl+Alt+Shift+S, no repeat
+        StopRegistered = NativeMethods.RegisterHotKey(handle, 1, 0x4007, stopVirtualKey); // Ctrl+Alt+Shift+S by default, no repeat
     }
     public bool BeginPicking()
     {
