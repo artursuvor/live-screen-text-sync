@@ -22,7 +22,8 @@ public sealed class SampleSourceWindow : Window
         var panel = new StackPanel { Margin = new Thickness(24) };
         Content = panel;
         panel.Children.Add(new TextBlock { Text = "Select the text below as your source region.", Foreground = Brushes.DimGray, Margin = new Thickness(0, 0, 0, 16) });
-        var text = new TextBlock { Text = "SCREEN TEXT READY", FontSize = 28, Foreground = Brushes.Black, Padding = new Thickness(12) };
+        var tiny = args.Contains("--tiny-text");
+        var text = new TextBlock { Text = "SCREEN TEXT READY", FontSize = tiny ? 11 : 28, Foreground = Brushes.Black, Padding = new Thickness(tiny ? 2 : 12) };
         var source = new Border { Background = Brushes.White, BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(1), Child = text };
         panel.Children.Add(source);
         var change = new Button { Content = "Change Text", Padding = new Thickness(14, 8, 14, 8), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 16, 0, 0) };
@@ -47,7 +48,13 @@ public sealed class SampleSourceWindow : Window
             if (!File.Exists(infoPath + ".command")) return;
             var command = File.ReadAllText(infoPath + ".command").Trim();
             File.Delete(infoPath + ".command");
-            text.Text = command == "empty" ? "" : command == "change" ? "SCREEN TEXT UPDATED" : "SCREEN TEXT READY";
+            if (command == "dark")
+            {
+                source.Background = new SolidColorBrush(Color.FromRgb(25, 28, 32));
+                text.Foreground = Brushes.White;
+                text.Text = "SMALL DARK TEXT";
+            }
+            else text.Text = command == "empty" ? "" : command == "change" ? "SCREEN TEXT UPDATED" : "SCREEN TEXT READY";
         };
         Closed += (_, _) => commands.Stop();
     }

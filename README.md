@@ -2,7 +2,7 @@
 
 Read text from a visible screen region into the app, then copy it when you need it.
 
-Version 0.2.0 simplifies the utility to local screen reading. There is no destination field to select and no compatibility check against another application.
+The utility reads text locally into its own window. There is no destination field to select and no compatibility check against another application.
 
 ![Application interface](docs/images/app.png)
 
@@ -22,7 +22,9 @@ Keep the source visible and unobstructed, and move this app away from the select
 
 - **Interval**: 100–5000 ms, default 200 ms.
 - **OCR language**: choose a Windows OCR language installed on the machine.
-- **Enhance image for OCR**: optional grayscale, median noise filtering, contrast, and 2× scaling when the OCR image-size limit permits it.
+- **Enhance image for OCR**: extra grayscale, contrast, and dark-background normalization.
+
+Version 0.2.1 automatically enlarges small regions up to 4× and adds background-colored margins before recognition, even when enhancement is off. Bilinear scaling preserves thin character strokes. If the first result is empty, OCR retries once with grayscale/contrast correction. The image-size and memory limits still apply. Select complete letters with a little space around them, and choose the matching OCR language; enlarging cannot restore pixels that were cut off.
 
 The app captures and recognizes asynchronously, discards stale frames, and skips unchanged images. Empty results or OCR errors preserve the last useful text. New nonempty text is displayed immediately; repeated text is not displayed again.
 
@@ -55,9 +57,9 @@ Run the real local capture checks on an unlocked desktop (the test briefly displ
 Build a portable ZIP:
 
 ```powershell
-.\scripts\package.ps1 -OutputName LiveScreenTextSync-v0.2.0-win-x64
+.\scripts\package.ps1 -OutputName LiveScreenTextSync-v0.2.1-win-x64
 ```
 
-The result is `artifacts/LiveScreenTextSync-v0.2.0-win-x64.zip`. GitHub Actions builds, runs core tests, and publishes a downloadable artifact.
+The result is `artifacts/LiveScreenTextSync-v0.2.1-win-x64.zip`. GitHub Actions builds, runs core tests, and publishes a downloadable artifact.
 
 See [architecture](docs/architecture.md) and [validation](docs/validation.md). The former external-target backend remains in source history and diagnostic code; the desktop capture workflow does not use it.

@@ -137,7 +137,7 @@ public partial class MainWindow : Window
                 else if (update.Kind == SyncEventKind.OcrError)
                     _ = Dispatcher.BeginInvoke(() => { if (!token.IsCancellationRequested) StatusLabel.Text = "OCR failed. Keeping the last captured text and retrying."; });
                 else if (update.Kind == SyncEventKind.Preview && string.IsNullOrWhiteSpace(update.Text))
-                    _ = Dispatcher.BeginInvoke(() => { if (!token.IsCancellationRequested) StatusLabel.Text = "No text detected. Keeping the last captured text."; });
+                    _ = Dispatcher.BeginInvoke(() => { if (!token.IsCancellationRequested) StatusLabel.Text = "No text detected. Include the complete letters and a little space around them; check the OCR language. Keeping the last captured text."; });
             };
             outline?.Hide();
             SetStatus("Capturing", "Reading the source into this window. Use Copy Text whenever you need it.");

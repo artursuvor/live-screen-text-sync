@@ -1,12 +1,12 @@
 # Validation
 
-Version 0.2.0 was validated on Windows 11 build 26200, x64, with .NET SDK 10.0.100 and the installed en-US Windows OCR recognizer on November 7, 2026.
+Version 0.2.1 was validated on Windows 11 build 26200, x64, with .NET SDK 10.0.100 and the installed en-US Windows OCR recognizer on November 7, 2026.
 
 ## Automated checks
 
-All 14 core tests passed. They cover normalization, optional confirmation, empty/error results, deduplication, pixel comparison, interval validation, cancellation before an output update, pause/resume state, and stale-frame handling.
+All 18 core tests passed. They cover normalization, optional confirmation, empty/error results, deduplication, pixel comparison, interval validation, cancellation before an output update, pause/resume state, stale-frame handling, preserving one-pixel stems during enlargement, light-background normalization, image-size limits, and invalid buffers.
 
-Five integration checks run the real main window and an isolated sample source:
+Eight integration checks run the real main window and isolated sample sources:
 
 | Check | Result |
 | --- | --- |
@@ -15,6 +15,9 @@ Five integration checks run the real main window and an isolated sample source:
 | Changed source refreshes the app's text field | Passed |
 | Blank OCR preserves the last useful text | Passed |
 | Stop freezes the result; Copy Text and Start Capture remain available | Passed |
+| 11-pixel text in a 512 × 16 px single-line region is recognized with enhancement off | Passed |
+| Changed text in the small region refreshes the local result | Passed |
+| Small light text on a dark background is recognized | Passed |
 
 A separate startup/shutdown smoke check passed without an unhandled UI exception. Diagnostic runs preserve user settings. Tests do not write to other user applications or modify the clipboard.
 

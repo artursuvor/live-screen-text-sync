@@ -16,6 +16,7 @@ public static class LocalCaptureChecks
         Directory.CreateDirectory(directory);
         var infoPath = Path.Combine(directory, $"sample-{Guid.NewGuid():N}.json");
         Process? sample = null;
+        Process? tinySample = null;
         try
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -44,6 +45,21 @@ public static class LocalCaptureChecks
             Require(preview.Text == stopped && ((Button)window.FindName("CopyButton")).IsEnabled, "Stop must freeze the text and keep copying available.");
             Require(((Button)window.FindName("StartButton")).IsEnabled, "A selected source must be sufficient to start another capture.");
             results.Add(new { Check = "Stop freezes captured text; Copy Text and Start Capture remain available", Passed = true });
+
+            var tinyPath = infoPath + ".tiny";
+            tinySample = Program.StartChild("--sample-source", "--tiny-text", "--fixture-info", tinyPath);
+            await WaitUntilAsync(() => File.Exists(tinyPath), token);
+            var tinyInfo = JsonSerializer.Deserialize<SampleSourceInfo>(File.ReadAllText(tinyPath))!;
+            ((CheckBox)window.FindName("PreprocessInput")).IsChecked = false;
+            await window.StartLocalCheckAsync(tinyInfo.Region);
+            await WaitUntilAsync(() => preview.Text.Contains("SCREEN TEXT READY", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "11-pixel text in a narrow single-line region is enlarged automatically", Passed = true, Width = tinyInfo.Region.Width, Height = tinyInfo.Region.Height });
+            File.WriteAllText(tinyPath + ".command", "change");
+            await WaitUntilAsync(() => preview.Text.Contains("SCREEN TEXT UPDATED", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "Small text changes refresh the local result", Passed = true });
+            File.WriteAllText(tinyPath + ".command", "dark");
+            await WaitUntilAsync(() => preview.Text.Contains("SMALL DARK TEXT", StringComparison.OrdinalIgnoreCase), token);
+            results.Add(new { Check = "Small light text on a dark background is recognized", Passed = true });
             File.WriteAllText(reportPath, JsonSerializer.Serialize(new { Success = true, Checks = results }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception ex)
@@ -54,12 +70,13 @@ public static class LocalCaptureChecks
         finally
         {
             await window.StopLocalCheckAsync();
-            if (sample is not null)
+            foreach (var fixture in new[] { sample, tinySample })
             {
-                if (!sample.HasExited) sample.Kill(entireProcessTree: true);
-                sample.Dispose();
+                if (fixture is null) continue;
+                if (!fixture.HasExited) fixture.Kill(entireProcessTree: true);
+                fixture.Dispose();
             }
-            foreach (var suffix in new[] { "", ".command" })
+            foreach (var suffix in new[] { "", ".command", ".tiny", ".tiny.command" })
                 if (File.Exists(infoPath + suffix)) File.Delete(infoPath + suffix);
             window.Close();
         }

@@ -2,7 +2,7 @@
 
 ## Current product: local text capture
 
-Version 0.2.0 reads a selected visible screen region into its own WPF text field. There is no external target selection or background writing in the main workflow. Copying to the clipboard is an explicit user action.
+The app reads a selected visible screen region into its own WPF text field. There is no external target selection or background writing in the main workflow. Copying to the clipboard is an explicit user action.
 
 The path is:
 
@@ -10,7 +10,7 @@ The path is:
 
 - **Core** contains frame comparison, text normalization, deduplication, optional stability tracking, and a one-frame bounded channel. Capture and OCR run independently; outdated OCR results are discarded.
 - **Capture** uses Win32 GDI BitBlt for visible desktop pixels, validates monitor topology and DPI, and stores frames only in memory.
-- **OCR** uses Windows.Media.Ocr with the selected installed recognizer. Optional enhancement applies grayscale, median noise filtering, contrast, and scaling.
+- **OCR** uses Windows.Media.Ocr with the selected installed recognizer. Small regions are automatically enlarged up to 4× with bilinear interpolation and padded with the local background color. Optional enhancement applies grayscale, contrast, and dark-background normalization. An empty first result is retried with enhancement. Thin strokes are preserved instead of running a median filter before enlargement.
 - **Local writer** dispatches nonempty changed text into the main window. Confirmation is disabled for immediate local display. Empty OCR and failures retain the previous useful text.
 - **Desktop controls** provide region selection, Start Capture, Pause / Resume, Stop, Copy Text, settings, and a sample source.
 - **Diagnostics** exercise actual capture and OCR through the real main window against an application-owned sample source. Diagnostic runs do not change persisted user settings.
