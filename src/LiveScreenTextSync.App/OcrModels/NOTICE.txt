@@ -1,0 +1,17 @@
+Bundled language data and OCR components
+
+Tesseract language models: tesseract-ocr/tessdata_fast, Apache License 2.0.
+Pinned model revision and file hashes are listed in models.json.
+https://github.com/tesseract-ocr/tessdata_fast
+
+Tesseract OCR engine: tesseract-ocr/tesseract, Apache License 2.0.
+https://github.com/tesseract-ocr/tesseract
+
+Tesseract .NET wrapper 5.2.0: Charles Weld and contributors, Apache License 2.0.
+https://github.com/charlesw/tesseract
+
+The Apache license text is included as LICENSE.txt.
+
+Leptonica 1.82.0: Dan Bloomberg and contributors, BSD-style license.
+See LEPTONICA-LICENSE.txt.
+https://github.com/DanBloomberg/leptonica
