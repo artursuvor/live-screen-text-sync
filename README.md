@@ -8,6 +8,8 @@ The utility reads text locally into its own window. There is no destination fiel
 
 ## Quick start
 
+From this project folder, double-click **`Launch.cmd`** to open the app. It uses the current portable build in `artifacts`. If no build is available, it creates one using the .NET 10 SDK on the first launch.
+
 1. Run `LiveScreenTextSync.App.exe` from the extracted portable folder. Keep all extracted files together; .NET is included.
 2. Click **Select Source** and drag a rectangle within one monitor. Press **Esc** to cancel.
 3. Click **Start Capture**. Recognized text appears in the app's own **Recognized Text** field and updates when the visible source changes.
